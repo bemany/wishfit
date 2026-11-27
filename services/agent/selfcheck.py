@@ -100,6 +100,10 @@ assert body.status == "ideas_only" and body.top is None and body.understood.cand
 assert len(api.get(body.trace_url).json()["model_calls"]) == 1
 print("ideas   ok:", body.status, [c.idea for c in body.understood.candidates][:2])
 
+import amazon
+assert amazon.find_url("schau mal https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ?ref_=wl_share danke").startswith("https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ")
+assert amazon.find_url("kein link, nur amazon.de") is None
+
 # failure paths: all must be a clean {"detail": str}
 stub("nope", "still nope")
 r = api.post("/recommend", json=example("simple.request.json"))

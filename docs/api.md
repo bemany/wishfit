@@ -70,6 +70,8 @@ Returns the stored response of an earlier `POST /recommend`. `404` if unknown.
 
 `source` is `"live"` or `"snapshot"`.
 
+`sources` (optional, in the trace): inputs the agent fetched itself, currently `{type: "amazon_wishlist", url, status, items: [{title, price}]}` when `input_text` or a wish contains a public Amazon wishlist link. The items are added to the input before the first model step.
+
 ## GET /health
 
 `{"ok": true}`
