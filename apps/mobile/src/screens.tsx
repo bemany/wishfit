@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, PanResponder, Pressable, ScrollView, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
 import { isPinned, lastResult, sayOf, type Me, type Person, type Product, type Recommendation, type Result } from './api';
+import { canOpenSettings, openLink, openSettings, shareText } from './platform';
 import { askMicPermission, dictate, speechAvailable } from './speech';
 import { C, F, TAG_COLORS, eur } from './theme';
 import { Body, Btn, Bubble, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Tag, TopBar, s } from './ui';
@@ -24,10 +24,6 @@ const PinPill = ({ pinned, onPress }: { pinned: boolean; onPress: () => void }) 
 );
 
 const SITE = 'https://wishfit.vercel.app';
-// Offers open in a browser sheet inside the app; if that is not possible, in the system browser
-const openOffer = (url: string) =>
-  WebBrowser.openBrowserAsync(url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET, controlsColor: C.ink }).catch(() => Linking.openURL(url).catch(() => {}));
-const share = (message: string) => Share.share({ message }).catch(() => {});
 
 // A tag can be pushed a little sideways and springs back. Pure play, no action behind it.
 // Claims the touch only for clearly horizontal drags, so taps and vertical scrolling stay untouched.
@@ -94,7 +90,7 @@ export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: 
       </View>
       {people.length === 0 && <Body style={{ color: C.mute }}>No tags yet. Add the first person you want to find a gift for.</Body>}
       <Btn label="Add someone" onPress={onAdd} />
-      <Btn secondary label="Invite a friend" onPress={() => share(`I'm using Wishfit to find gifts people actually want. ${SITE}`)} />
+      <Btn secondary label="Invite a friend" onPress={() => shareText(`I'm using Wishfit to find gifts people actually want. ${SITE}`)} />
       <Mono mute style={{ textAlign: 'center' }}>
         Your tags stay on this phone.
       </Mono>
@@ -265,7 +261,7 @@ export function MeScreen({ me, onChange, onBack }: { me: Me; onChange: (me: Me) 
         </View>
       </ScrollView>
       <View style={[pad, { gap: 10, paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => share([title, ...me.wishes.map((w) => `- ${w}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
+        <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => shareText([title, ...me.wishes.map((w) => `- ${w}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
         <Mono mute style={{ textAlign: 'center' }}>
           Your wishlist stays on this phone until you share it.
         </Mono>
@@ -351,7 +347,7 @@ function ProductPopup({ items, start, onClose, pinned, onPin }: { items: Product
   const openPending = () => {
     const url = pending.current;
     pending.current = null;
-    if (url) openOffer(url);
+    if (url) openLink(url);
   };
   useEffect(() => {
     if (start != null) setPage(start);
@@ -487,7 +483,7 @@ function Turn({ person, result, onOpen, onPin }: { person: Person; result: Resul
                 </View>
               }
               last={i === result.alternatives.length - 1}
-              onPress={alt.offer_url ? () => openOffer(alt.offer_url!) : undefined}
+              onPress={alt.offer_url ? () => openLink(alt.offer_url!) : undefined}
             />
           ))}
         </View>
@@ -628,12 +624,12 @@ export function Thread({
               : QUICK.map((q) => <Pill key={q} large label={q} onPress={() => send(q)} />)}
           </ScrollView>
         )}
-        {micNote === 'denied' ? (
-          <Pressable accessibilityRole="button" onPress={() => Linking.openSettings()}>
+        {micNote === 'denied' && canOpenSettings ? (
+          <Pressable accessibilityRole="button" onPress={() => openSettings()}>
             <Mono>Dictation needs the microphone and speech recognition. Tap to open Settings.</Mono>
           </Pressable>
         ) : (
-          micNote && <Mono>{micNote}</Mono>
+          micNote && <Mono>{micNote === 'denied' ? 'Dictation needs microphone access. Allow it in the browser and try again.' : micNote}</Mono>
         )}
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
           <TextInput
@@ -721,7 +717,7 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
         {permission?.granted ? (
           <Text style={[s.say, { color: '#fff', textAlign: 'center', paddingHorizontal: 48, fontSize: 22, lineHeight: 26, opacity: 0.9 }]}>Point at a product, a shop window or a screenshot.</Text>
         ) : (
-          <Pressable accessibilityRole="button" onPress={() => (permission?.canAskAgain ? ask() : Linking.openSettings())} style={{ padding: 40 }}>
+          <Pressable accessibilityRole="button" onPress={() => (permission?.canAskAgain || !canOpenSettings ? ask() : openSettings())} style={{ padding: 40 }}>
             <Text style={[s.say, { color: '#fff', textAlign: 'center', fontSize: 22, lineHeight: 26 }]}>The camera is off for Wishfit. Tap to allow it, or upload a photo.</Text>
           </Pressable>
         )}
@@ -811,7 +807,7 @@ export function Detail({ person, result, onBack, onPin }: { person: Person | nul
         </Mono>
       </ScrollView>
       <View style={[pad, { paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        {top.offer_url ? <Btn label={`Open offer · ${eur(top.total_eur)}`} onPress={() => openOffer(top.offer_url!)} /> : <Mono mute style={{ textAlign: 'center' }}>No offer link for this pick</Mono>}
+        {top.offer_url ? <Btn label={`Open offer · ${eur(top.total_eur)}`} onPress={() => openLink(top.offer_url!)} /> : <Mono mute style={{ textAlign: 'center' }}>No offer link for this pick</Mono>}
       </View>
     </View>
   );

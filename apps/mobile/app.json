@@ -26,7 +26,17 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "name": "Wishfit",
+      "shortName": "Wishfit",
+      "description": "Gift ideas that fit the person, from an agent that asks first.",
+      "themeColor": "#ff5a3c",
+      "backgroundColor": "#ffffff",
+      "display": "standalone",
+      "orientation": "portrait",
+      "lang": "en"
     },
     "scheme": "wishloop"
   }

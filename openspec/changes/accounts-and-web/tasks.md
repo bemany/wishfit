@@ -27,11 +27,11 @@
 
 ## 4. Webversion als PWA (Paket C, `apps/mobile` Web-Teil)
 
-- [ ] 4.1 Abhängigkeiten `react-dom`, `react-native-web`, `@expo/metro-runtime` fest eintragen
-- [ ] 4.2 `src/speech.web.ts` (Web Speech API), `src/platform.ts`/`.web.ts` für Links und Teilen, Einstellungen-Knopf im Web ausblenden
-- [ ] 4.3 `app.json` web-Abschnitt, `public/manifest.webmanifest`, Icons, `public/sw.js`, Registrierung nur im Web
-- [ ] 4.4 Vercel-Projekt `wishfit-web-test` (statisch, SPA-Rewrite), Deploy-Skript
-- [ ] 4.5 Im Headless-Chrome mit Handy-Größe prüfen: Start, Person anlegen, neu laden, Chat gegen Test-Backend
+- [x] 4.1 Abhängigkeiten `react-dom`, `react-native-web`, `@expo/metro-runtime` fest eintragen
+- [x] 4.2 `src/speech.web.ts` (Web Speech API), `src/platform.ts`/`.web.ts` für Links und Teilen, Einstellungen-Knopf im Web ausblenden
+- [x] 4.3 `app.json` web-Abschnitt, `public/manifest.webmanifest`, Icons, `public/sw.js`, Registrierung nur im Web
+- [x] 4.4 Vercel-Projekt `wishfit-web-test` (statisch, SPA-Rewrite), Deploy-Skript
+- [ ] 4.5 Im Headless-Chrome mit Handy-Größe prüfen: Start, Person anlegen, neu laden, Chat gegen Test-Backend (Start, Person, Chat gegen Test-Backend geprüft; "neu laden" wartet auf storage.web.ts aus Paket B)
 
 ## 5. Abschluss (Lead)
 
