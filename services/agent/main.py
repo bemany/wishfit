@@ -4,15 +4,16 @@ import json
 import os
 import secrets
 import re
+import threading
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 import amazon
 import auth
 import idealo
+import profiles
 import storage
 
 HERE = Path(__file__).parent
@@ -30,6 +32,7 @@ load_dotenv(HERE / ".env")
 app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth.router)
+app.include_router(profiles.router)
 
 
 @app.middleware("http")
@@ -177,10 +180,11 @@ def _eur(text: str | None) -> float | None:
         return None
 
 
-def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, summarize) -> dict | list | None:
+def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, summarize, timeout: float | None = None) -> dict | list | None:
     started = time.perf_counter()
     try:
-        result = summarize(idealo.call_tool(tool, arguments, session))
+        extra = {} if timeout is None else {"timeout": timeout}
+        result = summarize(idealo.call_tool(tool, arguments, session, **extra))
     except Exception as exc:  # one failed lookup must not sink the whole request; the model sees the gap
         result = {"error": f"{type(exc).__name__}: {exc}"[:200]}
     trace["idealo_calls"].append({
@@ -319,6 +323,129 @@ def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
             "source": "snapshot",
         })
     return snapshot["wishes"]
+
+
+# --- price tracker for wishes (POST /wishes/price, no model call) -------------
+
+MAX_PRICE_WISHES = 20
+TREND_THRESHOLD = 3.0  # percent over 30 days
+PRICE_DEADLINE_S = 25  # whole request; wishes not done by then come back as null
+PRICE_CALL_TIMEOUT_S = 8  # per idealo call
+PRICE_CACHE_TTL_S = 30 * 60
+PRICE_CACHE_MAX = 500
+_price_cache: dict[str, tuple[float, dict]] = {}  # normalized title -> (monotonic time, price); per instance
+_price_cache_lock = threading.Lock()
+
+
+def _cache_get(key: str) -> dict | None:
+    with _price_cache_lock:
+        hit = _price_cache.get(key)
+        if hit and time.monotonic() - hit[0] < PRICE_CACHE_TTL_S:
+            return hit[1]
+        _price_cache.pop(key, None)
+    return None
+
+
+def _cache_put(key: str, price: dict) -> None:
+    with _price_cache_lock:
+        if len(_price_cache) >= PRICE_CACHE_MAX:
+            _price_cache.pop(min(_price_cache, key=lambda k: _price_cache[k][0]))
+        _price_cache[key] = (time.monotonic(), price)
+
+
+class PriceWish(BaseModel):
+    title: str = Field(max_length=300)
+    url: str | None = Field(default=None, max_length=2000)
+
+
+class PriceRequest(BaseModel):
+    wishes: list[PriceWish] = Field(max_length=MAX_PRICE_WISHES)
+
+
+def _trend(change_percent: float | None) -> str | None:
+    if change_percent is None:
+        return None
+    return "down" if change_percent <= -TREND_THRESHOLD else "up" if change_percent >= TREND_THRESHOLD else "stable"
+
+
+def price_for(session: str | None, title: str, deadline: float | None = None) -> dict | None:
+    """Best idealo hit for one wish: search (available only), then offers and 30-day history for a catalog hit.
+    Single-merchant hits have neither offers list nor history (as in the recommend flow)."""
+    trace = {"idealo_calls": []}  # the shared helper logs into a trace; not kept here
+
+    def call(tool: str, arguments: dict, summarize):
+        left = PRICE_CALL_TIMEOUT_S if deadline is None else min(PRICE_CALL_TIMEOUT_S, deadline - time.monotonic())
+        if left <= 0:
+            return None
+        return _idealo_call(session, tool, arguments, trace, summarize, timeout=left)
+
+    hits = call("search_products", {"query": title.strip(), "filters": {"availableOnly": True}}, _search_summary)
+    if not isinstance(hits, list) or not hits:
+        return None
+    hit = hits[0]
+    if hit.get("price_eur") is None:
+        return None
+    price, count, change = hit["price_eur"], hit.get("offer_count"), None
+    if not is_single_offer(hit) and hit.get("productRef"):
+        ref = {"productRef": hit["productRef"]}
+        offers = call("get_product_offers", ref, _offers_summary)
+        history = call("get_product_price_history", ref, _history_summary)
+        prices = [o["price_eur"] for o in offers if o.get("price_eur") is not None] if isinstance(offers, list) else []
+        if prices:
+            price = min(prices + [price])
+        if isinstance(history, dict):
+            change = history.get("change_percent")
+    return {
+        "price_eur": price,
+        "offer_count": count if isinstance(count, int) else 1,
+        "in_stock": True,  # the search ran with availableOnly
+        "trend": _trend(change),
+        "change_percent": change,
+        "url": hit.get("product_url"),
+        "image_url": hit.get("image_url"),
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
+@app.post("/wishes/price")
+def wishes_price(req: PriceRequest, request: Request) -> dict:
+    if len(req.wishes) > MAX_PRICE_WISHES:
+        raise HTTPException(422, f"wishes: at most {MAX_PRICE_WISHES} per request")
+    if profiles.limited(request):
+        raise HTTPException(429, "too many requests, try again in a minute")
+    if not os.environ.get("IDEALO_MCP_URL") or not os.environ.get("IDEALO_CLIENT_ID"):
+        raise HTTPException(503, "idealo MCP not configured")
+    titles = [w.title for w in req.wishes]
+    if not any(t.strip() for t in titles):
+        return {"prices": [None] * len(titles)}
+    try:
+        session = idealo.open_session()
+    except Exception as exc:
+        raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
+
+    deadline = time.monotonic() + PRICE_DEADLINE_S
+
+    def one(title: str) -> dict | None:
+        key = " ".join(title.lower().split())
+        if not key:
+            return None
+        cached = _cache_get(key)
+        if cached:
+            return cached
+        try:
+            price = price_for(session, title, deadline)
+        except Exception:  # one wish failing must not sink the others
+            return None
+        if price:
+            _cache_put(key, price)
+        return price
+
+    # ponytail: 3 workers; idealo.call_tool also throttles per instance to 3 calls/s across all requests
+    pool = ThreadPoolExecutor(max_workers=3)
+    futures = [pool.submit(one, t) for t in titles]
+    done, _ = wait(futures, timeout=PRICE_DEADLINE_S)
+    pool.shutdown(wait=False, cancel_futures=True)
+    return {"prices": [f.result() if f in done else None for f in futures]}
 
 
 # --- the deciding model call (Vercel AI Gateway) ----------------------------

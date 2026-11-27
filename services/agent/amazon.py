@@ -3,6 +3,7 @@ https://github.com/christian-draeger/amazon-wishlist-webservice (WishListFetcher
 ponytail: first page only, regex instead of a DOM parser; Amazon may answer with a bot check, then this returns []."""
 import html
 import re
+import time
 from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
@@ -82,14 +83,47 @@ def resolve_product(url: str, timeout: float = 5) -> tuple[str | None, str, str 
     return slug_term(url), "resolved" if slug_term(url) else "failed", asin_of(url) or asin
 
 
+def parse_price(text: str | None) -> float | None:
+    """'83,92\xa0€' -> 83.92, '1.299,00 €' -> 1299.0, '$12.50' -> 12.5."""
+    m = re.search(r"\d[\d.,]*", text or "")
+    if not m:
+        return None
+    num = m.group(0).rstrip(".,")
+    if "," in num and "." in num:
+        dec = "," if num.rfind(",") > num.rfind(".") else "."
+    elif "," in num:
+        dec = ","
+    elif "." in num and len(num.rsplit(".", 1)[1]) != 3:
+        dec = "."
+    else:
+        dec = None
+    if dec:
+        whole, _, frac = num.rpartition(dec)
+        num = re.sub(r"[.,]", "", whole) + "." + frac
+    else:
+        num = re.sub(r"[.,]", "", num)
+    try:
+        return round(float(num), 2)
+    except ValueError:
+        return None
+
+
+FETCH_TOTAL_S = 20
+FETCH_HOP_S = 6
+
+
 def fetch(url: str) -> tuple[list[dict], int]:
-    """Returns (items, http_status). items: [{title, price}]."""
+    """Returns (items, http_status). items: [{title, price, price_eur, url, image_url}]."""
     url = url.split("?")[0]
     headers = {"User-Agent": USER_AGENT, "Referer": "http://www.google.com", "Accept-Language": "de-DE,de;q=0.9"}
+    deadline = time.monotonic() + FETCH_TOTAL_S
     for _ in range(MAX_HOPS + 1):  # redirects by hand: every hop must be an Amazon host
         if not allowed(url):
             return [], 400
-        r = httpx.get(url, headers=headers, follow_redirects=False, timeout=15)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return [], 504
+        r = httpx.get(url, headers=headers, follow_redirects=False, timeout=min(FETCH_HOP_S, left))
         if not r.is_redirect:
             break
         url = urljoin(url, r.headers.get("location", ""))
@@ -99,9 +133,25 @@ def fetch(url: str) -> tuple[list[dict], int]:
         return [], r.status_code
     page = r.text
     items = []
-    for m in re.finditer(r'id="itemName_([A-Z0-9]+)"[^>]*?title="([^"]+)"', page):
+    prev = 0
+    for m in re.finditer(r'id="itemName_([A-Z0-9]+)"([^>]*?)>', page):
+        tag = m.group(2)
+        title = re.search(r'title="([^"]+)"', tag)
+        if not title:
+            continue
         price = re.search(rf'id="itemPrice_{m.group(1)}"[^>]*>.*?a-offscreen">([^<]+)<', page, re.S)
-        items.append({"title": html.unescape(m.group(2)).strip(), "price": html.unescape(price.group(1)).strip() if price else None})
+        price_text = html.unescape(price.group(1)).strip() if price else None
+        href = re.search(r'href="([^"]+)"', tag)
+        asin = re.search(r"/dp/([A-Z0-9]{10})", href.group(1)) if href else None
+        imgs = re.findall(r'<img[^>]*?\ssrc="(https://[^"]+)"', page[prev:m.start()])
+        prev = m.end()
+        items.append({
+            "title": html.unescape(title.group(1)).strip(),
+            "price": price_text,
+            "price_eur": parse_price(price_text),
+            "url": f"https://www.amazon.de/dp/{asin.group(1)}" if asin else None,
+            "image_url": html.unescape(imgs[-1]) if imgs else None,
+        })
     return items, 200
 
 
