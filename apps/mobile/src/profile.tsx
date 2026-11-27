@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Image, Pressable, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Account } from './account';
 import { ApiError, call, deviceLanguage, sameWish, toWishes, type Me, type Person, type Price, type Wish } from './api';
@@ -64,9 +65,9 @@ export function statusOf(w: Wish, mine: boolean): string {
     !p || p.price_eur == null
       ? 'no price data yet'
       : p.trend === 'down' && pct != null
-        ? `price down ${pct} % in 30 days`
+        ? `price down ${pct}\u00a0% in 30 days`
         : p.trend === 'up' && pct != null
-          ? `price up ${pct} % in 30 days`
+          ? `price up ${pct}\u00a0% in 30 days`
           : (p.offer_count ?? 0) > 1
             ? `in stock at ${p.offer_count} shops`
             : p.trend === 'stable'
@@ -340,6 +341,7 @@ export function ProfileView({ slug, people, onBack, onAdd, onOpen }: { slug: str
       live = false;
     };
   }, [slug]);
+  const insets = useSafeAreaInsets();
   const known = people.find((p) => p.friendSlug === slug);
   const profile = state?.profile;
   const name = profile?.name.trim() || 'Your friend';
@@ -349,7 +351,7 @@ export function ProfileView({ slug, people, onBack, onAdd, onOpen }: { slug: str
       <View style={{ paddingHorizontal: 16 }}>
         <TopBar onBack={onBack} title={T.theirTag} />
       </View>
-      <View style={{ flex: 1, paddingHorizontal: 16, gap: 16, paddingTop: 12 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, gap: 16, paddingTop: 12, paddingBottom: insets.bottom + 24 }}>
         {!state ? (
           <Mono mute>{T.loading}</Mono>
         ) : !profile ? (
@@ -369,7 +371,7 @@ export function ProfileView({ slug, people, onBack, onAdd, onOpen }: { slug: str
             <WishList wishes={profile.wishes} mine={false} color={color} empty={T.noFriendWishes} />
           </>
         )}
-      </View>
+      </ScrollView>
     </View>
   );
 }
