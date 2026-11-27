@@ -164,7 +164,7 @@ export default function App() {
   // React to every URL event, so reopening the same link reloads it too
   useEffect(() => {
     const open = (url?: string | null) => {
-      const id = idFromUrl(url);
+      const id = idFromUrl(url ?? null);
       if (id) load(id);
     };
     Linking.getInitialURL().then(open);
