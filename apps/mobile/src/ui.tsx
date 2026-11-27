@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -8,6 +8,9 @@ const ICONS = {
   back: 'M15 6l-6 6 6 6',
   plus: 'M12 5v14M5 12h14',
   send: 'M12 19V5M5 12l7-7 7 7',
+  close: 'M6 6l12 12M18 6L6 18',
+  mic: 'M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3',
+  me: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 20c0-3.3 3.6-6 8-6s8 2.7 8 6',
 } as const;
 
 type TP = TextProps & { style?: StyleProp<TextStyle>; children?: ReactNode };
@@ -18,14 +21,18 @@ export const Body = ({ style, ...p }: TP) => <Text {...p} style={[s.body, style]
 export const Say = ({ style, ...p }: TP) => <Text {...p} style={[s.say, style]} />;
 export const Name = ({ style, ...p }: TP) => <Text {...p} style={[s.name, style]} />;
 
-export const Bubble = ({ children, note }: { children: string; note?: string }) => (
-  <View style={s.bubble}>
-    <Text style={[s.body, { color: '#fff' }]} numberOfLines={3}>
-      {children}
-    </Text>
-    {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{note}</Mono>}
-  </View>
-);
+// A long message (one with a `note`) is shortened; tapping it expands and collapses it
+export function Bubble({ children, note }: { children: string; note?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Pressable accessibilityRole={note ? 'button' : undefined} disabled={!note} onPress={() => setOpen((o) => !o)} style={s.bubble}>
+      <Text style={[s.body, { color: '#fff' }]} numberOfLines={note && open ? undefined : 3}>
+        {children}
+      </Text>
+      {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{open ? 'Tap to collapse' : `${note} · tap to expand`}</Mono>}
+    </Pressable>
+  );
+}
 
 // The hang tag: one per person and one per pick
 export function Tag({ color, onPress, style, children, label }: { color: string; onPress?: () => void; style?: StyleProp<ViewStyle>; children: ReactNode; label?: string }) {
@@ -60,14 +67,14 @@ export const Pill = ({ label, onPress, large }: { label: string; onPress?: () =>
   </Pressable>
 );
 
-export const Btn = ({ label, onPress, secondary }: { label: string; onPress: () => void; secondary?: boolean }) => (
-  <Pressable accessibilityRole="button" onPress={onPress} style={[s.btn, secondary && { backgroundColor: C.paper }]}>
+export const Btn = ({ label, onPress, secondary, disabled }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean }) => (
+  <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.btn, secondary && { backgroundColor: C.paper }, disabled && { opacity: 0.3 }]}>
     <Text style={[s.btnText, secondary && { color: C.ink }]}>{label}</Text>
   </Pressable>
 );
 
-export const Round = ({ icon, label, onPress, ink, size = 44 }: { icon: keyof typeof ICONS; label: string; onPress: () => void; ink?: boolean; size?: number }) => (
-  <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[s.round, { width: size, height: size }, ink && { backgroundColor: C.ink }]}>
+export const Round = ({ icon, label, onPress, ink, size = 44, fill }: { icon: keyof typeof ICONS; label: string; onPress: () => void; ink?: boolean; size?: number; fill?: string }) => (
+  <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[s.round, { width: size, height: size }, ink && { backgroundColor: C.ink }, fill != null && { backgroundColor: fill }]}>
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path d={ICONS[icon]} stroke={ink ? '#fff' : C.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
@@ -87,9 +94,9 @@ export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; ti
 );
 
 // Outlined row: alternatives, steps, price breakdown
-export const Line = ({ color = C.mint, title, sub, right, last, onPress }: { color?: string; title: string; sub?: string; right?: string; last?: boolean; onPress?: () => void }) => (
+export const Line = ({ color = C.mint, title, sub, right, left, last, onPress }: { left?: ReactNode; color?: string; title: string; sub?: string; right?: ReactNode; last?: boolean; onPress?: () => void }) => (
   <Pressable disabled={!onPress} onPress={onPress} style={[s.line, last && { borderBottomWidth: 2 }]}>
-    <View style={[s.dot, { backgroundColor: color }]} />
+    {left ?? <View style={[s.dot, { backgroundColor: color }]} />}
     <View style={{ flex: 1 }}>
       <Text style={s.lineTitle}>{title}</Text>
       {sub && (
@@ -98,7 +105,7 @@ export const Line = ({ color = C.mint, title, sub, right, last, onPress }: { col
         </Text>
       )}
     </View>
-    {right && <Text style={s.lineTitle}>{right}</Text>}
+    {typeof right === 'string' ? <Text style={s.lineTitle}>{right}</Text> : right}
   </Pressable>
 );
 

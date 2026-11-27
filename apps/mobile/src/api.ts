@@ -42,7 +42,36 @@ export type Person = {
   color: string;
   messages: Msg[];
   lastResultId: string | null;
+  pins: Pin[];
 };
+
+// A pinned product: a small snapshot of a recommendation, kept on the person
+export type Product = Pick<Recommendation, 'product_name' | 'total_eur' | 'price_eur' | 'shipping_eur' | 'merchant' | 'offer_url' | 'image_url' | 'delivery_estimate'>;
+export type Pin = Product & { pinnedAt: number; resultId: string };
+// Same product: same offer link, or same name when there is no link
+export const samePin = (a: Product, b: Product) => (a.offer_url || b.offer_url ? a.offer_url === b.offer_url : a.product_name === b.product_name);
+export const isPinned = (p: Person, item: Product) => p.pins.some((x) => samePin(x, item));
+export const togglePin = (p: Person, item: Product, resultId: string): Person =>
+  isPinned(p, item)
+    ? { ...p, pins: p.pins.filter((x) => !samePin(x, item)) }
+    : {
+        ...p,
+        pins: [
+          ...p.pins,
+          {
+            product_name: item.product_name,
+            total_eur: item.total_eur,
+            price_eur: item.price_eur,
+            shipping_eur: item.shipping_eur,
+            merchant: item.merchant,
+            offer_url: item.offer_url,
+            image_url: item.image_url,
+            delivery_estimate: item.delivery_estimate,
+            pinnedAt: Date.now(),
+            resultId,
+          },
+        ],
+      };
 
 // What the agent says for a turn; older backends send no `reply`
 export const sayOf = (r: Result) =>
@@ -103,12 +132,24 @@ export async function recommend(p: Person, text: string): Promise<Result> {
 
 // expo-file-system ships with the expo package, so this needs no extra native module
 const peopleFile = () => new File(Paths.document, 'people.json');
+// While unused colours remain, two people never share one: later duplicates move to a free colour
+export const uniqueColors = (people: Person[]): Person[] => {
+  const used = new Set(people.map((p) => p.color));
+  const seen = new Set<string>();
+  return people.map((p) => {
+    const free = seen.has(p.color) ? TAG_COLORS.find((c) => !used.has(c)) : undefined;
+    const color = free ?? p.color;
+    used.add(color);
+    seen.add(color);
+    return free ? { ...p, color } : p;
+  });
+};
 export const loadPeople = (): Person[] => {
   try {
     const file = peopleFile();
     const raw: any[] = file.exists ? JSON.parse(file.textSync()) : [];
     // Entries from before the gift-tags rebuild have no id, colour or messages
-    return raw.map((p, i) => ({
+    const people: Person[] = raw.map((p, i) => ({
       id: p.id ?? `p_${i}_${p.name}`,
       name: p.name,
       occasion: p.occasion,
@@ -116,7 +157,11 @@ export const loadPeople = (): Person[] => {
       color: p.color ?? TAG_COLORS[i % TAG_COLORS.length],
       messages: p.messages ?? [],
       lastResultId: p.lastResultId ?? null,
+      pins: Array.isArray(p.pins) ? p.pins : [],
     }));
+    const fixed = uniqueColors(people);
+    if (fixed.some((p, i) => p !== people[i])) savePeople(fixed);
+    return fixed;
   } catch {
     return [];
   }
@@ -126,5 +171,31 @@ export const savePeople = (people: Person[]) => {
     peopleFile().write(JSON.stringify(people));
   } catch {
     // the list still works for this session
+  }
+};
+
+// My own tag and wishlist. Local to this phone like the people, in a second file
+export type Me = { name: string; color: string; wishes: string[] };
+const meFile = () => new File(Paths.document, 'me.json');
+export const loadMe = (): Me => {
+  const empty: Me = { name: '', color: TAG_COLORS[1], wishes: [] };
+  try {
+    const file = meFile();
+    const raw = file.exists ? JSON.parse(file.textSync()) : null;
+    if (!raw || typeof raw !== 'object') return empty;
+    return {
+      name: typeof raw.name === 'string' ? raw.name : '',
+      color: typeof raw.color === 'string' ? raw.color : empty.color,
+      wishes: Array.isArray(raw.wishes) ? raw.wishes.filter((w: unknown) => typeof w === 'string') : [],
+    };
+  } catch {
+    return empty;
+  }
+};
+export const saveMe = (me: Me) => {
+  try {
+    meFile().write(JSON.stringify(me));
+  } catch {
+    // still works for this session
   }
 };

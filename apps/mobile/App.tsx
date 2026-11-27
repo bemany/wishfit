@@ -11,14 +11,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { idFromUrl, loadPeople, loadResult, recommend, savePeople, type Person, type Result } from './src/api';
-import { AddPerson, Detail, People, Thread } from './src/screens';
+import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
+import { AddPerson, Detail, MeScreen, People, Thread } from './src/screens';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
 const BRAND = 'Wishfit';
 
-type View_ = { name: 'people' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
+type View_ = { name: 'people' } | { name: 'me' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
 
 export default function App() {
   // On a font error the app still renders, with the system font
@@ -56,6 +56,7 @@ function EdgeBack({ x, onBack }: { x: Animated.Value; onBack: () => void }) {
 function Root() {
   const insets = useSafeAreaInsets();
   const [people, setPeople] = useState<Person[]>(loadPeople);
+  const [me, setMe] = useState<Me>(loadMe);
   const [view, setView] = useState<View_>({ name: 'people' });
   // ponytail: one request at a time across all threads
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -76,14 +77,21 @@ function Root() {
       const result = await recommend(person, text);
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
     } catch (e) {
+      // An unanswered message does not stay in the thread, only the error line does
+      update(person.id, (p) => {
+        const last = p.messages.at(-1);
+        return last?.role === 'user' && last.text === text ? { ...p, messages: p.messages.slice(0, -1) } : p;
+      });
       setError({ id: person.id, text: e instanceof Error ? e.message : 'Unknown error.' });
     } finally {
       setBusyId(null);
     }
   };
 
-  const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId'>) => {
-    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null };
+  const pin = (id: string, item: Product, resultId: string) => update(id, (p) => togglePin(p, item, resultId));
+
+  const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId' | 'pins'>) => {
+    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [] };
     const next = [person, ...people];
     setPeople(next);
     savePeople(next);
@@ -130,12 +138,23 @@ function Root() {
       <StatusBar style="dark" />
       <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
       {view.name === 'add' ? (
-        <AddPerson onBack={goBack} onDone={add} />
+        <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
+      ) : view.name === 'me' ? (
+        <MeScreen
+          me={me}
+          onBack={goBack}
+          onChange={(next) => {
+            setMe(next);
+            saveMe(next);
+          }}
+        />
       ) : view.name === 'edit' && person ? (
         <AddPerson
           key={`edit-${person.id}`}
           initial={person}
+          usedColors={people.filter((p) => p.id !== person.id).map((p) => p.color)}
           onBack={goBack}
+          onPin={(item, resultId) => pin(person.id, item, resultId)}
           onDone={(fields) => {
             update(person.id, (p) => ({ ...p, ...fields }));
             setView({ name: 'thread', id: person.id });
@@ -155,6 +174,7 @@ function Root() {
           error={error?.id === person.id ? error.text : null}
           onBack={goBack}
           onSend={(text) => send(person, text)}
+          onPin={(item, resultId) => pin(person.id, item, resultId)}
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
           onEdit={() => setView({ name: 'edit', id: person.id })}
         />
@@ -164,9 +184,10 @@ function Root() {
           person={person ?? people.find((p) => p.messages.some((m) => m.role === 'agent' && m.result.id === view.result.id)) ?? null}
           result={view.result}
           onBack={goBack}
+          onPin={person ? (item, resultId) => pin(person.id, item, resultId) : undefined}
         />
       ) : (
-        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} />
+        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} />
       )}
       </Animated.View>
       {view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
