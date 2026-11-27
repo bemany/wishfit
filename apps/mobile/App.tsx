@@ -13,6 +13,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 
 import { useAccount } from './src/account';
 import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
+import { applyPrices, fetchPrices } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { C } from './src/theme';
 
@@ -72,6 +73,22 @@ function Root() {
     setPeople(next);
   };
   const account = useAccount(people, me, applyPeople, setMe, peopleRef);
+  const meRef = useRef(me);
+  meRef.current = me;
+  const changeMe = (next: Me) => {
+    const stamped = { ...next, updatedAt: Date.now() };
+    meRef.current = stamped;
+    setMe(stamped);
+    saveMe(stamped);
+  };
+
+  // Opening my profile refreshes prices older than 6 h
+  useEffect(() => {
+    if (view.name !== 'me') return;
+    fetchPrices(meRef.current.wishes)
+      .then((checked) => checked.length && changeMe({ ...meRef.current, wishes: applyPrices(meRef.current.wishes, checked) }))
+      .catch(() => {});
+  }, [view.name]);
 
   const update = (id: string, change: (p: Person) => Person) => applyPeople((all) => all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p)));
 
@@ -148,11 +165,7 @@ function Root() {
           me={me}
           account={account}
           onBack={goBack}
-          onChange={(next) => {
-            const stamped = { ...next, updatedAt: Date.now() };
-            setMe(stamped);
-            saveMe(stamped);
-          }}
+          onChange={changeMe}
         />
       ) : view.name === 'edit' && person ? (
         <AddPerson

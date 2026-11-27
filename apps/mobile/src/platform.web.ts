@@ -17,3 +17,5 @@ export const shareText = async (message: string) => {
 // A browser has no settings page to jump to
 export const canOpenSettings = false;
 export const openSettings = () => {};
+
+export const isWeb = true;
