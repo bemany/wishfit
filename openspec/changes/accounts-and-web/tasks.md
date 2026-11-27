@@ -23,7 +23,7 @@
 - [x] 3.3 Auth-Client (request-code, verify, logout, delete) und Token im Request-Header
 - [x] 3.4 Sync: beim Start und nach Anmeldung holen, zusammenführen, Änderungen entprellt schreiben, 409 behandeln
 - [x] 3.5 Profil: Anmelden (E-Mail, Code), angemeldet-Zustand, Abmelden, Konto löschen mit Bestätigung
-- [ ] 3.6 `tsc` sauber, Ablauf im Simulator gegen das Test-Backend geprüft
+- [x] 3.6 `tsc` sauber, Ablauf im Simulator gegen das Test-Backend geprüft
 
 ## 4. Webversion als PWA (Paket C, `apps/mobile` Web-Teil)
 
