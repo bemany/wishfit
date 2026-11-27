@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAccount } from './src/account';
 import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { C } from './src/theme';
@@ -62,9 +63,11 @@ function Root() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
 
+  const account = useAccount(people, me, setPeople, setMe);
+
   const update = (id: string, change: (p: Person) => Person) =>
     setPeople((all) => {
-      const next = all.map((p) => (p.id === id ? change(p) : p));
+      const next = all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p));
       savePeople(next);
       return next;
     });
@@ -91,7 +94,7 @@ function Root() {
   const pin = (id: string, item: Product, resultId: string) => update(id, (p) => togglePin(p, item, resultId));
 
   const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId' | 'pins'>) => {
-    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [] };
+    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [], updatedAt: Date.now() };
     const next = [person, ...people];
     setPeople(next);
     savePeople(next);
@@ -142,10 +145,12 @@ function Root() {
       ) : view.name === 'me' ? (
         <MeScreen
           me={me}
+          account={account}
           onBack={goBack}
           onChange={(next) => {
-            setMe(next);
-            saveMe(next);
+            const stamped = { ...next, updatedAt: Date.now() };
+            setMe(stamped);
+            saveMe(stamped);
           }}
         />
       ) : view.name === 'edit' && person ? (

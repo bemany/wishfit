@@ -1,5 +1,4 @@
-import { File, Paths } from 'expo-file-system';
-
+import { readJson, readSecret, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
@@ -44,6 +43,8 @@ export type Person = {
   messages: Msg[];
   lastResultId: string | null;
   pins: Pin[];
+  // ms of the last change, used to merge with the account
+  updatedAt?: number;
 };
 
 // A pinned product: a small snapshot of a recommendation, kept on the person
@@ -89,7 +90,7 @@ export const lastResult = (p: Person) => {
 // wishloop://results/{id}
 export const idFromUrl = (url: string | null) => url?.match(/results\/([^/?#]+)/)?.[1] ?? null;
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
@@ -98,22 +99,47 @@ class ApiError extends Error {
   }
 }
 
-async function request(path: string, body?: unknown): Promise<Result> {
+// The signed-in session: token in the keychain (web: localStorage), e-mail beside it
+export type Session = { token: string; email: string };
+export const SESSION_KEY = 'session';
+export const getSession = (): Session | null => {
+  try {
+    const s = JSON.parse(readSecret(SESSION_KEY) ?? 'null');
+    return s && typeof s.token === 'string' ? s : null;
+  } catch {
+    return null;
+  }
+};
+
+// Called when the server rejects the token (401): the account module signs out
+let onSessionLost: () => void = () => {};
+export const setSessionLostHandler = (fn: () => void) => {
+  onSessionLost = fn;
+};
+
+// JSON call to the backend; sends the Bearer token when signed in (auth: false for the public sign-in calls)
+export async function call<T = unknown>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
+  const token = auth ? getSession()?.token : undefined;
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
   let res: Response;
   try {
-    res = await fetch(API_URL + path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+    res = await fetch(API_URL + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
     throw new ApiError(`I can't reach the server (${API_URL}).`, 0);
   }
+  if (res.status === 401 && token) onSessionLost();
   if (!res.ok) {
-    const detail = await res
-      .json()
-      .then((b) => (typeof b?.detail === 'string' ? b.detail : null))
-      .catch(() => null);
-    throw new ApiError(detail ?? `The server answered with error ${res.status}.`, res.status);
+    const data = await res.json().catch(() => null);
+    const err = new ApiError(typeof data?.detail === 'string' ? data.detail : `The server answered with error ${res.status}.`, res.status);
+    (err as ApiError & { data?: unknown }).data = data;
+    throw err;
   }
-  return res.json();
+  return res.status === 204 ? (undefined as T) : res.json();
 }
+
+const request = (path: string, body?: unknown): Promise<Result> => call(body ? 'POST' : 'GET', path, body);
 
 export const loadResult = (id: string) => request(`/results/${encodeURIComponent(id)}`);
 
@@ -133,8 +159,6 @@ export async function recommend(p: Person, text: string, image?: string): Promis
   }
 }
 
-// expo-file-system ships with the expo package, so this needs no extra native module
-const peopleFile = () => new File(Paths.document, 'people.json');
 // While unused colours remain, two people never share one: later duplicates move to a free colour
 export const uniqueColors = (people: Person[]): Person[] => {
   const used = new Set(people.map((p) => p.color));
@@ -149,8 +173,7 @@ export const uniqueColors = (people: Person[]): Person[] => {
 };
 export const loadPeople = (): Person[] => {
   try {
-    const file = peopleFile();
-    const raw: any[] = file.exists ? JSON.parse(file.textSync()) : [];
+    const raw = (readJson('people') as any[] | null) ?? [];
     // Entries from before the gift-tags rebuild have no id, colour or messages
     const people: Person[] = raw.map((p, i) => ({
       id: p.id ?? `p_${i}_${p.name}`,
@@ -161,6 +184,7 @@ export const loadPeople = (): Person[] => {
       messages: p.messages ?? [],
       lastResultId: p.lastResultId ?? null,
       pins: Array.isArray(p.pins) ? p.pins : [],
+      updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
     }));
     const fixed = uniqueColors(people);
     if (fixed.some((p, i) => p !== people[i])) savePeople(fixed);
@@ -170,35 +194,26 @@ export const loadPeople = (): Person[] => {
   }
 };
 export const savePeople = (people: Person[]) => {
-  try {
-    peopleFile().write(JSON.stringify(people));
-  } catch {
-    // the list still works for this session
-  }
+  writeJson('people', people);
 };
 
 // My own tag and wishlist. Local to this phone like the people, in a second file
-export type Me = { name: string; color: string; wishes: string[] };
-const meFile = () => new File(Paths.document, 'me.json');
+export type Me = { name: string; color: string; wishes: string[]; updatedAt?: number };
 export const loadMe = (): Me => {
   const empty: Me = { name: '', color: TAG_COLORS[1], wishes: [] };
   try {
-    const file = meFile();
-    const raw = file.exists ? JSON.parse(file.textSync()) : null;
+    const raw = readJson('me') as any;
     if (!raw || typeof raw !== 'object') return empty;
     return {
       name: typeof raw.name === 'string' ? raw.name : '',
       color: typeof raw.color === 'string' ? raw.color : empty.color,
       wishes: Array.isArray(raw.wishes) ? raw.wishes.filter((w: unknown) => typeof w === 'string') : [],
+      updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : undefined,
     };
   } catch {
     return empty;
   }
 };
 export const saveMe = (me: Me) => {
-  try {
-    meFile().write(JSON.stringify(me));
-  } catch {
-    // still works for this session
-  }
+  writeJson('me', me);
 };

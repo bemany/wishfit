@@ -5,6 +5,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
+import { AccountPanel } from './account-ui';
+import type { Account } from './account';
 import { isPinned, lastResult, sayOf, type Me, type Person, type Product, type Recommendation, type Result } from './api';
 import { canOpenSettings, openLink, openSettings, shareText } from './platform';
 import { askMicPermission, dictate, speechAvailable } from './speech';
@@ -202,8 +204,8 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
   );
 }
 
-// Me: my own tag and wishlist. Everything stays on this phone, sharing goes through the system share sheet
-export function MeScreen({ me, onChange, onBack }: { me: Me; onChange: (me: Me) => void; onBack: () => void }) {
+// Me: my own tag and wishlist. Stays on this phone unless signed in, sharing goes through the system share sheet
+export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: Account; onChange: (me: Me) => void; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const [wish, setWish] = useState('');
   const addWish = () => {
@@ -259,11 +261,12 @@ export function MeScreen({ me, onChange, onBack }: { me: Me; onChange: (me: Me) 
           <TextInput accessibilityLabel="New wish" value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder="A wish or a link" placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
           <Round icon="plus" label="Add wish" ink size={52} onPress={addWish} />
         </View>
+        <AccountPanel account={account} />
       </ScrollView>
       <View style={[pad, { gap: 10, paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
         <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => shareText([title, ...me.wishes.map((w) => `- ${w}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
         <Mono mute style={{ textAlign: 'center' }}>
-          Your wishlist stays on this phone until you share it.
+          Your wishlist stays on this phone until you share it or sign in to sync.
         </Mono>
       </View>
     </KeyboardAvoidingView>
