@@ -25,6 +25,16 @@ app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def vercel_oidc(request, call_next):
+    # On Vercel the OIDC token for the AI Gateway arrives per request as a header, not as an env var.
+    # ponytail: copied into the process env, it is the same project token for every request.
+    token = request.headers.get("x-vercel-oidc-token")
+    if token:
+        os.environ["VERCEL_OIDC_TOKEN"] = token
+    return await call_next(request)
+
+
 @app.exception_handler(RequestValidationError)
 def invalid_request(_, exc: RequestValidationError):
     # Contract: error body is {"detail": string}.
