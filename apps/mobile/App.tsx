@@ -12,7 +12,7 @@ import { Animated, Dimensions, Linking, PanResponder, Platform, View } from 'rea
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAccount } from './src/account';
-import { idFromUrl, sameWish, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
+import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { C } from './src/theme';
@@ -75,34 +75,43 @@ function Root() {
   const account = useAccount(people, me, applyPeople, setMe, peopleRef);
   const meRef = useRef(me);
   meRef.current = me;
-  const changeMe = (next: Me) => {
-    const stamped = { ...next, updatedAt: Date.now() };
+  // stamp: false for what the app does by itself (prices), so it never wins a sync over a real edit
+  const changeMe = (next: Me, stamp = true) => {
+    const stamped = stamp ? { ...next, updatedAt: Date.now() } : next;
     meRef.current = stamped;
     setMe(stamped);
     saveMe(stamped);
   };
 
-  // Opening my profile (and importing into it) refreshes prices older than 6 h; one request at a time
+  // Opening my profile (and importing into it) refreshes prices older than 6 h; one request at a time,
+  // 20 wishes a request, so it goes on in rounds (at most 5) until none is left or a new import asks again
   const pricing = useRef(false);
+  const pricingAgain = useRef(false);
   useEffect(() => {
-    if (view.name !== 'me' || pricing.current) return;
+    if (view.name !== 'me') return;
+    if (pricing.current) return void (pricingAgain.current = true);
     pricing.current = true;
-    fetchPrices(meRef.current.wishes)
-      .then((checked) => checked.length && changeMe({ ...meRef.current, wishes: applyPrices(meRef.current.wishes, checked) }))
+    (async () => {
+      for (let round = 0; round < 5; round++) {
+        pricingAgain.current = false;
+        const checked = await fetchPrices(meRef.current.wishes);
+        if (checked.length) changeMe({ ...meRef.current, wishes: applyPrices(meRef.current.wishes, checked) }, false);
+        if (!checked.length && !pricingAgain.current) break;
+      }
+    })()
       .catch(() => {})
       .finally(() => (pricing.current = false));
   }, [view.name, me.wishes.length]);
 
-  const update = (id: string, change: (p: Person) => Person) => applyPeople((all) => all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p)));
+  const update = (id: string, change: (p: Person) => Person, stamp = true) =>
+    applyPeople((all) => all.map((p) => (p.id === id ? { ...change(p), ...(stamp ? { updatedAt: Date.now() } : {}) } : p)));
 
   const send = async (person: Person, text: string, photo?: { uri: string; base64: string }) => {
     setBusyId(person.id);
     setError(null);
     update(person.id, (p) => ({ ...p, messages: [...p.messages, { role: 'user', text, photo: photo?.uri }] }));
     try {
-      // a friend's shared wishes go with the first message only; the server keeps them in the history after that
-      const context = person.lastResultId ? null : friendContext(person);
-      const result = await recommend(person, context ? `${text}\n\n${context}` : text, photo?.base64);
+      const result = await recommend(person, text, photo?.base64, friendContext(person));
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
@@ -128,6 +137,7 @@ function Root() {
   const addFriend = (slug: string, profile: PublicProfile) => {
     const known = peopleRef.current.find((p) => p.friendSlug === slug);
     if (known) return setView({ name: 'thread', id: known.id });
+    if (meRef.current.share?.slug === slug) return;
     // ponytail: occasion and budget are not on a shared tag; defaults the user can change under More
     add({ name: profile.name.trim() || 'Friend', occasion: 'Birthday', budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
   };
@@ -140,7 +150,8 @@ function Root() {
     const slug = friend?.friendSlug;
     if (!friend || !slug) return;
     let live = true;
-    const setWishes = (f: (w: NonNullable<Person['wishes']>) => NonNullable<Person['wishes']>) => update(friend.id, (p) => ({ ...p, wishes: f(p.wishes ?? []) }));
+    // a refresh is not an edit: it does not stamp updatedAt
+    const setWishes = (f: (w: NonNullable<Person['wishes']>) => NonNullable<Person['wishes']>) => update(friend.id, (p) => ({ ...p, wishes: f(p.wishes ?? []) }), false);
     loadProfile(slug)
       .then(async (profile) => {
         if (!live) return;
@@ -148,13 +159,13 @@ function Root() {
         if (!profile) return;
         // the friend's list wins; prices I checked meanwhile stay when theirs are older or missing
         const mine = peopleRef.current.find((p) => p.id === friend.id)?.wishes ?? [];
-        const wishes = profile.wishes.map((w) => {
-          const old = mine.find((m) => sameWish(m, w));
-          return old?.price && (!w.price || old.price.checked_at > w.price.checked_at) ? { ...w, price: old.price } : w;
-        });
+        const wishes = newerPrices(profile.wishes, mine);
         if (JSON.stringify(wishes) !== JSON.stringify(mine)) setWishes(() => wishes);
-        const checked = await fetchPrices(wishes);
-        if (live && checked.length) setWishes((current) => applyPrices(current, checked));
+        for (let round = 0; round < 5 && live; round++) {
+          const checked = await fetchPrices(peopleRef.current.find((p) => p.id === friend.id)?.wishes ?? []);
+          if (!live || !checked.length) break;
+          setWishes((current) => applyPrices(current, checked));
+        }
       })
       .catch(() => {});
     return () => {
@@ -213,7 +224,7 @@ function Root() {
       <StatusBar style="dark" />
       <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
       {view.name === 'profile' ? (
-        <ProfileView key={view.slug} slug={view.slug} people={people} onBack={goBack} onAdd={(profile) => addFriend(view.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
+        <ProfileView key={view.slug} slug={view.slug} people={people} mine={me.share?.slug === view.slug} onBack={goBack} onAdd={(profile) => addFriend(view.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
       ) : view.name === 'add' ? (
         <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
       ) : view.name === 'me' ? (

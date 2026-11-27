@@ -173,9 +173,11 @@ export const loadResult = (id: string) => request(`/results/${encodeURIComponent
 
 // A follow-up sends only the new message plus previous_id; the server prepends the history
 // image: a photo of a product as base64; the server names the product and carries on with that as text
-export async function recommend(p: Person, text: string, image?: string): Promise<Result> {
+// context: data that goes with the first message only (a friend's shared wishes); the server keeps it in the history after that
+export async function recommend(p: Person, text: string, image?: string, context?: string | null): Promise<Result> {
   const base = { language: deviceLanguage(), recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
-  if (!p.lastResultId) return request('/recommend', { ...base, input_text: text });
+  const withContext = (t: string) => (context ? `${t}\n\n${context}` : t);
+  if (!p.lastResultId) return request('/recommend', { ...base, input_text: withContext(text) });
   try {
     return await request('/recommend', { ...base, input_text: text, previous_id: p.lastResultId });
   } catch (e) {
@@ -183,7 +185,7 @@ export async function recommend(p: Person, text: string, image?: string): Promis
     // The server forgot the earlier result (restart): send the whole history from the device instead
     const history = p.messages.flatMap((m) => (m.role === 'user' ? [m.text] : []));
     // same shape as the server's own history: first message, then follow-ups marked as such
-    return request('/recommend', { ...base, input_text: [...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n') });
+    return request('/recommend', { ...base, input_text: withContext([...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n')) });
   }
 }
 
@@ -276,6 +278,12 @@ export const toWishes = (raw: unknown): Wish[] => (Array.isArray(raw) ? raw.map(
 // Same wish: same link, or the same title
 const norm = (t: string) => t.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
 export const sameWish = (a: Wish, b: Wish) => (!!a.url && a.url === b.url) || norm(a.title) === norm(b.title);
+// The list stays as in `wishes`; per wish the more recently checked price wins (prices do not stamp updatedAt)
+export const newerPrices = (wishes: Wish[], other: Wish[]): Wish[] =>
+  wishes.map((w) => {
+    const o = other.find((x) => sameWish(x, w));
+    return o?.price && (!w.price || o.price.checked_at > w.price.checked_at) ? { ...w, price: o.price } : w;
+  });
 
 // My own tag and wishlist. Local to this phone like the people, in a second file
 // share: my public profile link while it is shared
