@@ -10,8 +10,14 @@ import { Button } from 'heroui-native/button';
 import { Chip } from 'heroui-native/chip';
 import { InputGroup } from 'heroui-native/input-group';
 import { HeroUINativeProvider } from 'heroui-native/provider';
+import { Input } from 'heroui-native/input';
+import { Label } from 'heroui-native/label';
 import { Skeleton } from 'heroui-native/skeleton';
+import { Spinner } from 'heroui-native/spinner';
+import { TextArea } from 'heroui-native/text-area';
+import { TextField } from 'heroui-native/text-field';
 
+import sampleChatRequest from './assets/sample.chat.request.json';
 import sampleClarification from './assets/sample.clarification.response.json';
 import sampleRecommendation from './assets/sample.response.json';
 
@@ -37,9 +43,11 @@ type Recommendation = {
   delivery_estimate: string | null;
   signals: Signal[];
 };
+type Understood = { summary: string; interests: string[]; candidates: { idea: string; why: string }[] };
 type Result = {
   id: string;
-  status: 'recommendation' | 'needs_clarification';
+  status: 'recommendation' | 'needs_clarification' | 'ideas_only';
+  understood?: Understood | null;
   top: Recommendation | null;
   alternatives: Recommendation[];
   uncertainty: { reasons: string[]; question: string } | null;
@@ -221,10 +229,63 @@ function Clarification({ result }: { result: Result }) {
   );
 }
 
-function ResultView({ result }: { result: Result }) {
-  if (result.status === 'needs_clarification' || !result.top) return <Clarification result={result} />;
+// What the agent took from the free-text input, shown before any product
+function UnderstoodBlock({ understood }: { understood: Understood }) {
   return (
     <>
+      <SectionTitle title="Das habe ich verstanden" />
+      <View className="gap-4 rounded-3xl bg-surface p-5">
+        <Text className="text-base leading-6 text-foreground">{understood.summary}</Text>
+        {understood.interests.length > 0 && (
+          <View className="flex-row flex-wrap gap-2">
+            {understood.interests.map((interest, i) => (
+              <Chip key={i} variant="soft" color="accent">
+                <Chip.Label>{interest}</Chip.Label>
+              </Chip>
+            ))}
+          </View>
+        )}
+      </View>
+      {understood.candidates.map((c, i) => (
+        <View key={i} className="flex-row items-center gap-3 rounded-3xl bg-surface p-4">
+          <Avatar name="gift" tone="accent" />
+          <View className="flex-1 gap-0.5">
+            <Text className="text-base font-semibold text-foreground">{c.idea}</Text>
+            <Text className="text-sm leading-5 text-muted">{c.why}</Text>
+          </View>
+        </View>
+      ))}
+    </>
+  );
+}
+
+function ResultView({ result }: { result: Result }) {
+  const understood = result.understood ? <UnderstoodBlock understood={result.understood} /> : null;
+  if (result.status === 'ideas_only') {
+    return (
+      <>
+        {understood}
+        <SectionTitle title="Noch keine Preisdaten" />
+        {result.uncertainty?.reasons.map((r, i) => (
+          <View key={i} className="flex-row items-center gap-3 rounded-3xl bg-surface p-4">
+            <Avatar name="alert" tone="warning" />
+            <Text className="flex-1 text-base leading-6 text-foreground">{r}</Text>
+          </View>
+        ))}
+      </>
+    );
+  }
+  if (result.status === 'needs_clarification' || !result.top) {
+    return (
+      <>
+        <Clarification result={result} />
+        {understood}
+      </>
+    );
+  }
+  return (
+    <>
+      {understood}
       <SectionTitle title="Top-Empfehlung" />
       <TopCard rec={result.top} />
       <SignalTiles signals={result.top.signals} />
@@ -241,6 +302,38 @@ function ResultView({ result }: { result: Result }) {
   );
 }
 
+const STEPS = [
+  { label: 'Eingabe verstehen', icon: 'question' },
+  { label: 'idealo durchsuchen', icon: 'search' },
+  { label: 'Entscheiden', icon: 'gift' },
+] as const;
+
+// No real progress from the backend: the steps simply appear one after another
+function LoadingSteps() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setStep((n) => Math.min(n + 1, STEPS.length - 1)), 6000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <View className="gap-3">
+      <View className="items-center gap-2 px-4 py-8">
+        <Text className="text-center text-2xl font-semibold text-foreground">Ich suche das beste Geschenk</Text>
+        <Text className="text-center text-base text-muted">Das dauert etwa 20 Sekunden.</Text>
+      </View>
+      {STEPS.slice(0, step + 1).map((s, i) => (
+        <View key={i} className="flex-row items-center gap-3 rounded-3xl bg-surface p-4">
+          <Avatar name={i < step ? 'check' : s.icon} tone={i < step ? 'success' : 'accent'} />
+          <Text className="flex-1 text-base font-semibold text-foreground">{s.label}</Text>
+          {i === step && <Spinner size="sm" />}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+type Person = { name: string; occasion: string; budget: number; result: Result };
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -255,17 +348,77 @@ export default function App() {
 
 function Screen() {
   const insets = useSafeAreaInsets();
+  const [name, setName] = useState('');
+  const [budget, setBudget] = useState('');
+  const [occasion, setOccasion] = useState('');
+  const [about, setAbout] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  // ponytail: kept in memory for the session; persist with AsyncStorage once a native rebuild is fine
+  const [people, setPeople] = useState<Person[]>([]);
+  const [lastAction, setLastAction] = useState<'ask' | 'load'>('load');
+
   const [input, setInput] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastId, setLastId] = useState('');
 
+  const ask = async () => {
+    const budgetEur = Number(budget.replace(',', '.'));
+    if (!about.trim() || !occasion.trim() || !(budgetEur > 0)) {
+      setFormError('Bitte gib Budget, Anlass und etwas über die Person an.');
+      return;
+    }
+    setFormError(null);
+    setLastAction('ask');
+    setAsking(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_URL}/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input_text: about.trim(),
+          budget_eur: budgetEur,
+          occasion: occasion.trim(),
+          recipient_name: name.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res
+          .json()
+          .then((b) => (typeof b?.detail === 'string' ? b.detail : null))
+          .catch(() => null);
+        setError(detail ?? `Der Server antwortet mit Fehler ${res.status}.`);
+      } else {
+        const r: Result = await res.json();
+        setResult(r);
+        setPeople((p) => [{ name: name.trim() || 'Ohne Namen', occasion: occasion.trim(), budget: budgetEur, result: r }, ...p]);
+      }
+    } catch {
+      // network failure or unparsable body
+      setError(`Backend nicht erreichbar (${API_URL}).`);
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const fillExample = () => {
+    setName(sampleChatRequest.recipient_name);
+    setBudget(String(sampleChatRequest.budget_eur));
+    setOccasion(sampleChatRequest.occasion);
+    setAbout(sampleChatRequest.input_text);
+    setFormError(null);
+  };
+
   const load = async (id: string) => {
     id = id.trim();
     if (!id) return;
     setInput(id);
     setLastId(id);
+    setLastAction('load');
     setLoading(true);
     setError(null);
     setResult(null);
@@ -282,10 +435,10 @@ function Screen() {
     }
   };
 
+  // Back to the form; what was typed stays so it can be adjusted
   const reset = () => {
     setResult(null);
     setError(null);
-    setInput('');
   };
 
   const showSample = (sample: unknown) => {
@@ -304,87 +457,150 @@ function Screen() {
     return () => sub.remove();
   }, []);
 
-  const offer = result?.top?.offer_url;
+  const view = asking ? 'asking' : loading ? 'loading' : error ? 'error' : result ? 'result' : 'form';
+  const offer = view === 'result' ? result?.top?.offer_url : null;
+  const hasBar = view === 'form' || !!offer;
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
       <StatusBar style="dark" />
       <View className="min-h-11 flex-row items-center justify-between px-4 py-2">
         <Text className="text-2xl font-bold text-foreground">{BRAND}</Text>
-        {(result || error) && (
+        {(view === 'result' || view === 'error') && (
           <Button variant="tertiary" isIconOnly className="size-11" accessibilityLabel="Schließen" onPress={reset}>
             <Icon name="close" />
           </Button>
         )}
       </View>
       <ScrollView
-        contentContainerClassName="grow gap-3 px-4 pt-2"
-        contentContainerStyle={{ paddingBottom: insets.bottom + (offer ? 104 : 24) }}
+        contentContainerClassName="gap-3 px-4 pt-2"
+        contentContainerStyle={{ paddingBottom: insets.bottom + (hasBar ? 104 : 24) }}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
-        <InputGroup>
-          <InputGroup.Prefix>
-            <Icon name="search" color={MUTED} />
-          </InputGroup.Prefix>
-          <InputGroup.Input
-            className="min-h-12"
-            maxFontSizeMultiplier={1.6}
-            accessibilityLabel="Ergebnis-Code"
-            value={input}
-            onChangeText={setInput}
-            placeholder="Ergebnis-Code, z. B. r_abc123"
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="go"
-            onSubmitEditing={() => load(input)}
-          />
-        </InputGroup>
+        {view === 'form' && (
+          <>
+            <Text className="pb-1 text-3xl font-bold text-foreground">Für wen suchst du ein Geschenk?</Text>
+            <View className="gap-4 rounded-3xl bg-surface p-5">
+              <TextField>
+                <Label>Für wen?</Label>
+                <Input variant="secondary" maxFontSizeMultiplier={1.6} value={name} onChangeText={setName} placeholder="z. B. Mara" />
+              </TextField>
+              <View className="flex-row gap-3">
+                <TextField className="flex-1">
+                  <Label>Budget in Euro</Label>
+                  <Input
+                    variant="secondary"
+                    maxFontSizeMultiplier={1.6}
+                    keyboardType="decimal-pad"
+                    value={budget}
+                    onChangeText={setBudget}
+                    placeholder="60"
+                  />
+                </TextField>
+                <TextField className="flex-1">
+                  <Label>Anlass</Label>
+                  <Input variant="secondary" maxFontSizeMultiplier={1.6} value={occasion} onChangeText={setOccasion} placeholder="Geburtstag" />
+                </TextField>
+              </View>
+              <TextField>
+                <Label>Was weißt du über die Person?</Label>
+                <TextArea
+                  variant="secondary"
+                  className="max-h-56 min-h-36"
+                  maxFontSizeMultiplier={1.6}
+                  value={about}
+                  onChangeText={setAbout}
+                  placeholder="Wunschliste, WhatsApp-Chat oder Notizen einfügen. Oder über das Mikrofon der Tastatur einfach diktieren."
+                />
+              </TextField>
+              {formError && <Text className="text-sm text-danger">{formError}</Text>}
+              <Button variant="secondary" className="min-h-11" onPress={fillExample}>
+                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel einfügen</Button.Label>
+              </Button>
+            </View>
 
-        {loading && (
+            {people.length > 0 && <SectionTitle title="Deine Personen" hint={String(people.length)} />}
+            {people.map((p, i) => (
+              <Pressable
+                key={i}
+                className="flex-row items-center gap-3 rounded-3xl bg-surface p-4 active:opacity-70"
+                accessibilityRole="button"
+                onPress={() => showSample(p.result)}
+              >
+                <Avatar name="gift" tone="accent" />
+                <View className="flex-1 gap-0.5">
+                  <Text className="text-base font-semibold text-foreground">{p.name}</Text>
+                  <Text className="text-sm text-muted" style={tabular}>
+                    {p.occasion} · {eur(p.budget)}
+                  </Text>
+                </View>
+                <Icon name="chevron" color={MUTED} size={18} />
+              </Pressable>
+            ))}
+
+            <SectionTitle title="Ergebnis per Code öffnen" />
+            <InputGroup>
+              <InputGroup.Prefix>
+                <Icon name="search" color={MUTED} />
+              </InputGroup.Prefix>
+              <InputGroup.Input
+                className="min-h-12"
+                maxFontSizeMultiplier={1.6}
+                accessibilityLabel="Ergebnis-Code"
+                value={input}
+                onChangeText={setInput}
+                placeholder="Ergebnis-Code, z. B. r_abc123"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="go"
+                onSubmitEditing={() => load(input)}
+              />
+            </InputGroup>
+            <View className="flex-row gap-2">
+              <Button variant="tertiary" size="sm" className="min-h-11 flex-1" onPress={() => showSample(sampleRecommendation)}>
+                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel: Empfehlung</Button.Label>
+              </Button>
+              <Button variant="tertiary" size="sm" className="min-h-11 flex-1" onPress={() => showSample(sampleClarification)}>
+                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel: Rückfrage</Button.Label>
+              </Button>
+            </View>
+          </>
+        )}
+
+        {view === 'asking' && <LoadingSteps />}
+        {view === 'loading' && (
           <View className="gap-3 pt-2">
             <Skeleton className="h-44 rounded-3xl" />
             <Skeleton className="h-24 rounded-3xl" />
             <Skeleton className="h-24 rounded-3xl" />
           </View>
         )}
-        {error && (
+        {view === 'error' && (
           <View className="items-center gap-3 px-4 pt-10">
             <View className="size-16 items-center justify-center rounded-full bg-default">
               <Icon name="alert" color={TONE.danger} size={28} />
             </View>
             <Text className="text-center text-2xl font-semibold text-foreground">Das hat nicht geklappt</Text>
             <Text className="text-center text-base text-muted">{error}</Text>
-            <Button variant="secondary" className="mt-2 min-h-11" onPress={() => load(lastId)}>
+            <Button variant="secondary" className="mt-2 min-h-11" onPress={() => (lastAction === 'ask' ? ask() : load(lastId))}>
               <Button.Label maxFontSizeMultiplier={1.6}>Erneut versuchen</Button.Label>
             </Button>
           </View>
         )}
-        {result && <ResultView result={result} />}
-        {!result && !error && !loading && (
-          <View className="flex-1 items-center justify-center gap-3 px-4 pb-16">
-            <View className="size-16 items-center justify-center rounded-full bg-default">
-              <Icon name="gift" color={ACCENT} size={28} />
-            </View>
-            <Text className="text-center text-2xl font-semibold text-foreground">Noch kein Ergebnis geöffnet</Text>
-            <Text className="text-center text-base text-muted">
-              Tippe auf deinen Ergebnis-Link oder gib den Code oben ein. Zum Ausprobieren gibt es zwei Beispiele.
-            </Text>
-            <View className="mt-2 gap-2 self-stretch">
-              <Button variant="secondary" className="min-h-12" onPress={() => showSample(sampleRecommendation)}>
-                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel: Empfehlung</Button.Label>
-              </Button>
-              <Button variant="secondary" className="min-h-12" onPress={() => showSample(sampleClarification)}>
-                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel: Rückfrage</Button.Label>
-              </Button>
-            </View>
-          </View>
-        )}
+        {view === 'result' && result && <ResultView result={result} />}
       </ScrollView>
-      {offer && (
+      {hasBar && (
         <View className="absolute inset-x-0 bottom-0 bg-background px-4 pt-3" style={{ paddingBottom: insets.bottom + 12 }}>
-          <Button size="lg" className="min-h-14" onPress={() => Linking.openURL(offer)}>
-            <Button.Label maxFontSizeMultiplier={1.6}>Zum Angebot · {eur(result!.top!.total_eur)}</Button.Label>
-          </Button>
+          {view === 'form' ? (
+            <Button size="lg" className="min-h-14" onPress={ask}>
+              <Button.Label maxFontSizeMultiplier={1.6}>Geschenk finden</Button.Label>
+            </Button>
+          ) : (
+            <Button size="lg" className="min-h-14" onPress={() => Linking.openURL(offer!)}>
+              <Button.Label maxFontSizeMultiplier={1.6}>Zum Angebot · {eur(result!.top!.total_eur)}</Button.Label>
+            </Button>
+          )}
         </View>
       )}
     </View>
