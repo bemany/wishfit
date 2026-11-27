@@ -1,8 +1,9 @@
 import './global.css';
 
+import { File, Paths } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -79,6 +80,7 @@ const ICONS = {
   search: 'M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.3-4.3',
   close: 'M6 6l12 12M18 6L6 18',
   chevron: 'M9 6l6 6-6 6',
+  send: 'M12 19V5M5 12l7-7 7 7',
   gift: 'M4 12v8h16v-8M3 8h18v4H3zM12 8v12M12 8S10.5 3.5 8 4.5 9 8 12 8zM12 8s1.5-4.5 4-3.500S15 8 12 8z',
   box: 'M3.5 7.500L12 3l8.5 4.500v9L12 21l-8.5-4.500zM3.5 7.500L12 12l8.5-4.500M12 12v9',
   check: 'M5 12.500l4.5 4.500L19 7.5',
@@ -169,13 +171,17 @@ function TopCard({ rec }: { rec: Recommendation }) {
         </Chip>
       </View>
       <Text className="text-base leading-6 text-foreground">{rec.reason}</Text>
+      {rec.offer_url && (
+        <Button className="min-h-12" onPress={() => Linking.openURL(rec.offer_url!)}>
+          <Button.Label maxFontSizeMultiplier={1.6}>Zum Angebot</Button.Label>
+        </Button>
+      )}
     </View>
   );
 }
 
 function AlternativeRow({ rec }: { rec: Recommendation }) {
   const action = ACTIONS[rec.action] ?? ACTIONS.alternative;
-  const signals = rec.signals.map((s) => s.value).join(' · ');
   return (
     <Pressable
       className="gap-3 rounded-3xl bg-surface p-4 active:opacity-70"
@@ -195,11 +201,14 @@ function AlternativeRow({ rec }: { rec: Recommendation }) {
         {rec.offer_url && <Icon name="chevron" color={MUTED} size={18} />}
       </View>
       <Text className="text-sm leading-5 text-muted">{rec.reason}</Text>
-      {signals !== '' && (
-        <Text className="text-sm font-medium text-foreground" style={tabular}>
-          {signals}
-        </Text>
-      )}
+      {rec.signals.map((sig, i) => (
+        <View key={i} className="flex-row justify-between gap-3">
+          <Text className="text-sm text-muted">{sig.label}</Text>
+          <Text className="shrink text-right text-sm font-medium text-foreground" style={tabular}>
+            {sig.value}
+          </Text>
+        </View>
+      ))}
     </Pressable>
   );
 }
@@ -332,7 +341,29 @@ function LoadingSteps() {
   );
 }
 
-type Person = { name: string; occasion: string; budget: number; result: Result };
+// Everything known about one recipient. `context` grows with every request and follow-up
+// and is sent along again next time, so the agent builds on the whole history.
+type Person = { name: string; occasion: string; budget: number; context: string[]; results: Result[] };
+
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+// expo-file-system ships with the expo package, so this needs no extra native module
+const peopleFile = () => new File(Paths.document, 'people.json');
+const loadPeople = (): Person[] => {
+  try {
+    const file = peopleFile();
+    return file.exists ? JSON.parse(file.textSync()) : [];
+  } catch {
+    return [];
+  }
+};
+const savePeople = (people: Person[]) => {
+  try {
+    peopleFile().write(JSON.stringify(people));
+  } catch {
+    // the list still works for this session
+  }
+};
 
 export default function App() {
   return (
@@ -354,9 +385,14 @@ function Screen() {
   const [about, setAbout] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  // ponytail: kept in memory for the session; persist with AsyncStorage once a native rebuild is fine
-  const [people, setPeople] = useState<Person[]>([]);
+  const [people, setPeople] = useState<Person[]>(loadPeople);
+  // Every piece of text sent in the current conversation, earlier context of the person included
+  const [thread, setThread] = useState<string[]>([]);
   const [lastAction, setLastAction] = useState<'ask' | 'load'>('load');
+  // Follow-up messages typed under a result; each one re-runs the agent with everything said so far
+  const [notes, setNotes] = useState<string[]>([]);
+  const [followUp, setFollowUp] = useState('');
+  const [chat, setChat] = useState(false);
 
   const [input, setInput] = useState('');
   const [result, setResult] = useState<Result | null>(null);
@@ -364,13 +400,17 @@ function Screen() {
   const [error, setError] = useState<string | null>(null);
   const [lastId, setLastId] = useState('');
 
-  const ask = async () => {
+  const known = people.find((p) => sameName(p.name, name || 'Ohne Namen'));
+
+  const ask = async (pieces: string[], said: string[]) => {
     const budgetEur = Number(budget.replace(',', '.'));
-    if (!about.trim() || !occasion.trim() || !(budgetEur > 0)) {
+    if (pieces.length === 0 || !occasion.trim() || !(budgetEur > 0)) {
       setFormError('Bitte gib Budget, Anlass und etwas über die Person an.');
       return;
     }
     setFormError(null);
+    setThread(pieces);
+    setNotes(said);
     setLastAction('ask');
     setAsking(true);
     setError(null);
@@ -380,7 +420,8 @@ function Screen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          input_text: about.trim(),
+          // ponytail: no conversation endpoint, so the whole history of the person goes in as one text
+          input_text: pieces.join('\n\n'),
           budget_eur: budgetEur,
           occasion: occasion.trim(),
           recipient_name: name.trim() || null,
@@ -394,8 +435,17 @@ function Screen() {
         setError(detail ?? `Der Server antwortet mit Fehler ${res.status}.`);
       } else {
         const r: Result = await res.json();
+        const who = name.trim() || 'Ohne Namen';
+        const earlier = people.find((p) => sameName(p.name, who));
+        const next = [
+          { name: who, occasion: occasion.trim(), budget: budgetEur, context: pieces, results: [r, ...(earlier?.results ?? [])].slice(0, 5) },
+          ...people.filter((p) => !sameName(p.name, who)),
+        ];
+        setPeople(next);
+        savePeople(next);
         setResult(r);
-        setPeople((p) => [{ name: name.trim() || 'Ohne Namen', occasion: occasion.trim(), budget: budgetEur, result: r }, ...p]);
+        setChat(true);
+        setAbout('');
       }
     } catch {
       // network failure or unparsable body
@@ -403,6 +453,27 @@ function Screen() {
     } finally {
       setAsking(false);
     }
+  };
+
+  // New request from the form: what is already known about the person comes first
+  const askFromForm = () => ask([...(known?.context ?? []), about.trim()].filter(Boolean), []);
+
+  const openPerson = (p: Person) => {
+    setName(p.name);
+    setBudget(String(p.budget));
+    setOccasion(p.occasion);
+    setThread(p.context);
+    setNotes([]);
+    setError(null);
+    setResult(p.results[0] ?? null);
+    setChat(true);
+  };
+
+  const sendFollowUp = () => {
+    const msg = followUp.trim();
+    if (!msg) return;
+    setFollowUp('');
+    ask([...thread, `Nachtrag: ${msg}`], [...notes, msg]);
   };
 
   const fillExample = () => {
@@ -419,6 +490,7 @@ function Screen() {
     setInput(id);
     setLastId(id);
     setLastAction('load');
+    setChat(false);
     setLoading(true);
     setError(null);
     setResult(null);
@@ -443,6 +515,7 @@ function Screen() {
 
   const showSample = (sample: unknown) => {
     setError(null);
+    setChat(false);
     setResult(sample as Result);
   };
 
@@ -458,11 +531,10 @@ function Screen() {
   }, []);
 
   const view = asking ? 'asking' : loading ? 'loading' : error ? 'error' : result ? 'result' : 'form';
-  const offer = view === 'result' ? result?.top?.offer_url : null;
-  const hasBar = view === 'form' || !!offer;
+  const hasBar = view === 'form' || (view === 'result' && chat);
 
   return (
-    <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
+    <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
       <StatusBar style="dark" />
       <View className="min-h-11 flex-row items-center justify-between px-4 py-2">
         <Text className="text-2xl font-bold text-foreground">{BRAND}</Text>
@@ -476,7 +548,6 @@ function Screen() {
         contentContainerClassName="gap-3 px-4 pt-2"
         contentContainerStyle={{ paddingBottom: insets.bottom + (hasBar ? 104 : 24) }}
         keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
       >
         {view === 'form' && (
           <>
@@ -514,6 +585,11 @@ function Screen() {
                   placeholder="Wunschliste, WhatsApp-Chat oder Notizen einfügen. Oder über das Mikrofon der Tastatur einfach diktieren."
                 />
               </TextField>
+              {known && (
+                <Text className="text-sm text-muted">
+                  Über {known.name} weiß ich schon {known.context.length} {known.context.length === 1 ? 'Eintrag' : 'Einträge'}. Was du jetzt schreibst, kommt dazu.
+                </Text>
+              )}
               {formError && <Text className="text-sm text-danger">{formError}</Text>}
               <Button variant="secondary" className="min-h-11" onPress={fillExample}>
                 <Button.Label maxFontSizeMultiplier={1.6}>Beispiel einfügen</Button.Label>
@@ -526,13 +602,13 @@ function Screen() {
                 key={i}
                 className="flex-row items-center gap-3 rounded-3xl bg-surface p-4 active:opacity-70"
                 accessibilityRole="button"
-                onPress={() => showSample(p.result)}
+                onPress={() => openPerson(p)}
               >
                 <Avatar name="gift" tone="accent" />
                 <View className="flex-1 gap-0.5">
                   <Text className="text-base font-semibold text-foreground">{p.name}</Text>
                   <Text className="text-sm text-muted" style={tabular}>
-                    {p.occasion} · {eur(p.budget)}
+                    {p.occasion} · {eur(p.budget)} · {p.context.length} {p.context.length === 1 ? 'Eintrag' : 'Einträge'}
                   </Text>
                 </View>
                 <Icon name="chevron" color={MUTED} size={18} />
@@ -583,26 +659,47 @@ function Screen() {
             </View>
             <Text className="text-center text-2xl font-semibold text-foreground">Das hat nicht geklappt</Text>
             <Text className="text-center text-base text-muted">{error}</Text>
-            <Button variant="secondary" className="mt-2 min-h-11" onPress={() => (lastAction === 'ask' ? ask() : load(lastId))}>
+            <Button variant="secondary" className="mt-2 min-h-11" onPress={() => (lastAction === 'ask' ? ask(thread, notes) : load(lastId))}>
               <Button.Label maxFontSizeMultiplier={1.6}>Erneut versuchen</Button.Label>
             </Button>
           </View>
         )}
-        {view === 'result' && result && <ResultView result={result} />}
+        {view === 'result' && result && (
+          <>
+            {notes.map((n, i) => (
+              <View key={i} className="max-w-[85%] self-end rounded-3xl bg-accent px-4 py-3">
+                <Text className="text-base leading-6 text-accent-foreground">{n}</Text>
+              </View>
+            ))}
+            <ResultView result={result} />
+          </>
+        )}
       </ScrollView>
       {hasBar && (
         <View className="absolute inset-x-0 bottom-0 bg-background px-4 pt-3" style={{ paddingBottom: insets.bottom + 12 }}>
           {view === 'form' ? (
-            <Button size="lg" className="min-h-14" onPress={ask}>
+            <Button size="lg" className="min-h-14" onPress={askFromForm}>
               <Button.Label maxFontSizeMultiplier={1.6}>Geschenk finden</Button.Label>
             </Button>
           ) : (
-            <Button size="lg" className="min-h-14" onPress={() => Linking.openURL(offer!)}>
-              <Button.Label maxFontSizeMultiplier={1.6}>Zum Angebot · {eur(result!.top!.total_eur)}</Button.Label>
-            </Button>
+            <View className="flex-row items-end gap-2">
+              <View className="flex-1">
+                <TextArea
+                  className="max-h-32 min-h-12"
+                  maxFontSizeMultiplier={1.6}
+                  accessibilityLabel="Nachricht an den Agenten"
+                  value={followUp}
+                  onChangeText={setFollowUp}
+                  placeholder="Weiter schreiben, z. B. lieber etwas für die Küche"
+                />
+              </View>
+              <Button isIconOnly className="size-12" accessibilityLabel="Senden" onPress={sendFollowUp}>
+                <Icon name="send" color="#ffffff" />
+              </Button>
+            </View>
           )}
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
