@@ -82,13 +82,16 @@ function Root() {
     saveMe(stamped);
   };
 
-  // Opening my profile refreshes prices older than 6 h
+  // Opening my profile (and importing into it) refreshes prices older than 6 h; one request at a time
+  const pricing = useRef(false);
   useEffect(() => {
-    if (view.name !== 'me') return;
+    if (view.name !== 'me' || pricing.current) return;
+    pricing.current = true;
     fetchPrices(meRef.current.wishes)
       .then((checked) => checked.length && changeMe({ ...meRef.current, wishes: applyPrices(meRef.current.wishes, checked) }))
-      .catch(() => {});
-  }, [view.name]);
+      .catch(() => {})
+      .finally(() => (pricing.current = false));
+  }, [view.name, me.wishes.length]);
 
   const update = (id: string, change: (p: Person) => Person) => applyPeople((all) => all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p)));
 
