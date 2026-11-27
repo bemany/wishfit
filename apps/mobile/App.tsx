@@ -8,19 +8,19 @@ import { InstrumentSans_700Bold } from '@expo-google-fonts/instrument-sans/700Bo
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
+import { Animated, Dimensions, Linking, PanResponder, Platform, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAccount } from './src/account';
-import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
-import { applyPrices, fetchPrices } from './src/profile';
+import { idFromUrl, sameWish, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
+import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
 const BRAND = 'Wishfit';
 
-type View_ = { name: 'people' } | { name: 'me' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'snap'; id: string | null } | { name: 'detail'; result: Result; id: string | null };
+type View_ = { name: 'people' } | { name: 'me' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'snap'; id: string | null } | { name: 'detail'; result: Result; id: string | null } | { name: 'profile'; slug: string };
 
 export default function App() {
   // On a font error the app still renders, with the system font
@@ -97,7 +97,9 @@ function Root() {
     setError(null);
     update(person.id, (p) => ({ ...p, messages: [...p.messages, { role: 'user', text, photo: photo?.uri }] }));
     try {
-      const result = await recommend(person, text, photo?.base64);
+      // a friend's shared wishes go with the first message only; the server keeps them in the history after that
+      const context = person.lastResultId ? null : friendContext(person);
+      const result = await recommend(person, context ? `${text}\n\n${context}` : text, photo?.base64);
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
@@ -119,9 +121,56 @@ function Root() {
     setView({ name: 'thread', id: person.id });
   };
 
+  // A shared tag becomes a person; the same tag twice opens the one already there
+  const addFriend = (slug: string, profile: PublicProfile) => {
+    const known = peopleRef.current.find((p) => p.friendSlug === slug);
+    if (known) return setView({ name: 'thread', id: known.id });
+    // ponytail: occasion and budget are not on a shared tag; defaults the user can change under More
+    add({ name: profile.name.trim() || 'Friend', occasion: 'Birthday', budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
+  };
+
+  // Opening a friend's chat reloads their shared tag and the prices on it; 404 keeps the person with a note
+  const [goneSlugs, setGoneSlugs] = useState<string[]>([]);
+  const openId = view.name === 'thread' ? view.id : null;
+  useEffect(() => {
+    const friend = peopleRef.current.find((p) => p.id === openId);
+    const slug = friend?.friendSlug;
+    if (!friend || !slug) return;
+    let live = true;
+    const setWishes = (f: (w: NonNullable<Person['wishes']>) => NonNullable<Person['wishes']>) => update(friend.id, (p) => ({ ...p, wishes: f(p.wishes ?? []) }));
+    loadProfile(slug)
+      .then(async (profile) => {
+        if (!live) return;
+        setGoneSlugs((all) => (profile ? all.filter((x) => x !== slug) : all.includes(slug) ? all : [...all, slug]));
+        if (!profile) return;
+        // the friend's list wins; prices I checked meanwhile stay when theirs are older or missing
+        const mine = peopleRef.current.find((p) => p.id === friend.id)?.wishes ?? [];
+        const wishes = profile.wishes.map((w) => {
+          const old = mine.find((m) => sameWish(m, w));
+          return old?.price && (!w.price || old.price.checked_at > w.price.checked_at) ? { ...w, price: old.price } : w;
+        });
+        if (JSON.stringify(wishes) !== JSON.stringify(mine)) setWishes(() => wishes);
+        const checked = await fetchPrices(wishes);
+        if (live && checked.length) setWishes((current) => applyPrices(current, checked));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [openId]);
+
+  // wishloop://u/{slug} (web: /u/{slug}) opens a shared tag
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const slug = slugFromUrl(window.location.pathname);
+    if (slug) setView({ name: 'profile', slug });
+  }, []);
+
   // wishloop://results/{id} opens the pick in detail. Reacts to every URL event, so reopening the same link reloads it too
   useEffect(() => {
     const open = (url?: string | null) => {
+      const slug = Platform.OS === 'web' ? null : slugFromUrl(url);
+      if (slug) return setView({ name: 'profile', slug });
       const id = idFromUrl(url ?? null);
       if (id) loadResult(id).then((result) => setView({ name: 'detail', result, id: null })).catch(() => {});
     };
@@ -147,6 +196,8 @@ function Root() {
   const goBack = () => {
     const target: View_ =
       (view.name === 'edit' || view.name === 'snap') && view.id ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' };
+    // the web address of a shared tag goes away with it, so a reload lands on the tags
+    if (view.name === 'profile' && Platform.OS === 'web') window.history.replaceState(null, '', '/');
     Animated.timing(x, { toValue: WIDTH, duration: 200, useNativeDriver: true }).start(() => {
       leaving.current = true;
       setView(target);
@@ -158,7 +209,9 @@ function Root() {
     <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
       <StatusBar style="dark" />
       <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
-      {view.name === 'add' ? (
+      {view.name === 'profile' ? (
+        <ProfileView key={view.slug} slug={view.slug} people={people} onBack={goBack} onAdd={(profile) => addFriend(view.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
+      ) : view.name === 'add' ? (
         <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
       ) : view.name === 'me' ? (
         <MeScreen
@@ -189,6 +242,7 @@ function Root() {
           person={person}
           busy={busyId === person.id}
           error={error?.id === person.id ? error.text : null}
+          header={person.friendSlug ? <FriendWishes person={person} gone={goneSlugs.includes(person.friendSlug)} /> : undefined}
           onBack={goBack}
           onSend={(text) => send(person, text)}
           onSnap={() => setView({ name: 'snap', id: person.id })}

@@ -514,6 +514,7 @@ export function Thread({
   onOpen,
   onEdit,
   onPin,
+  header,
 }: {
   person: Person;
   busy: boolean;
@@ -524,6 +525,8 @@ export function Thread({
   onOpen: (r: Result) => void;
   onEdit: () => void;
   onPin: OnPin;
+  // shown above the chat, e.g. a friend's shared wishes
+  header?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -587,6 +590,7 @@ export function Thread({
         // A new answer is read from its first line; everything else follows the bottom
         onContentSizeChange={() => !answered && scroll.current?.scrollToEnd({ animated: true })}
       >
+        {header}
         {empty && (
           <>
             <Tag color={person.color} style={{ gap: 12, paddingBottom: 24 }}>
