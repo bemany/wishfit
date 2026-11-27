@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -321,6 +321,86 @@ def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
             "source": "snapshot",
         })
     return snapshot["wishes"]
+
+
+# --- price tracker for wishes (POST /wishes/price, no model call) -------------
+
+MAX_PRICE_WISHES = 20
+TREND_THRESHOLD = 3.0  # percent over 30 days
+
+
+class PriceWish(BaseModel):
+    title: str = Field(max_length=300)
+    url: str | None = Field(default=None, max_length=2000)
+
+
+class PriceRequest(BaseModel):
+    wishes: list[PriceWish]
+
+
+def _trend(change_percent: float | None) -> str | None:
+    if change_percent is None:
+        return None
+    return "down" if change_percent <= -TREND_THRESHOLD else "up" if change_percent >= TREND_THRESHOLD else "stable"
+
+
+def price_for(session: str | None, title: str) -> dict | None:
+    """Best idealo hit for one wish: search (available only), then offers and 30-day history for a catalog hit.
+    Single-merchant hits have neither offers list nor history (as in the recommend flow)."""
+    trace = {"idealo_calls": []}  # the shared helper logs into a trace; not kept here
+    hits = _idealo_call(session, "search_products", {"query": title.strip(), "filters": {"availableOnly": True}}, trace, _search_summary)
+    if not isinstance(hits, list) or not hits:
+        return None
+    hit = hits[0]
+    if hit.get("price_eur") is None:
+        return None
+    price, count, change = hit["price_eur"], hit.get("offer_count"), None
+    if not is_single_offer(hit) and hit.get("productRef"):
+        ref = {"productRef": hit["productRef"]}
+        offers = _idealo_call(session, "get_product_offers", ref, trace, _offers_summary)
+        history = _idealo_call(session, "get_product_price_history", ref, trace, _history_summary)
+        prices = [o["price_eur"] for o in offers if o.get("price_eur") is not None] if isinstance(offers, list) else []
+        if prices:
+            price = min(prices + [price])
+        if isinstance(history, dict):
+            change = history.get("change_percent")
+    return {
+        "price_eur": price,
+        "offer_count": count if isinstance(count, int) else 1,
+        "in_stock": True,  # the search ran with availableOnly
+        "trend": _trend(change),
+        "change_percent": change,
+        "url": hit.get("product_url"),
+        "image_url": hit.get("image_url"),
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
+@app.post("/wishes/price")
+def wishes_price(req: PriceRequest, request: Request) -> dict:
+    if len(req.wishes) > MAX_PRICE_WISHES:
+        raise HTTPException(422, f"wishes: at most {MAX_PRICE_WISHES} per request")
+    if profiles.limited(request):
+        raise HTTPException(429, "too many requests, try again in a minute")
+    if not os.environ.get("IDEALO_MCP_URL") or not os.environ.get("IDEALO_CLIENT_ID"):
+        raise HTTPException(503, "idealo MCP not configured")
+    titles = [w.title for w in req.wishes]
+    if not any(t.strip() for t in titles):
+        return {"prices": [None] * len(titles)}
+    try:
+        session = idealo.open_session()
+    except Exception as exc:
+        raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
+
+    def one(title: str) -> dict | None:
+        try:
+            return price_for(session, title) if title.strip() else None
+        except Exception:  # one wish failing must not sink the others
+            return None
+
+    # ponytail: 3 workers, each wish runs its calls one after another, so at most 3 idealo calls at once (trial tier: 3 req/s)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        return {"prices": list(pool.map(one, titles))}
 
 
 # --- the deciding model call (Vercel AI Gateway) ----------------------------

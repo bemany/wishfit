@@ -1,10 +1,10 @@
 ## 1. Backend (Paket E, `services/agent`)
 
-- [ ] 1.1 Spalte `users.profile_slug` (Migration in `db.py`), Speicher-Ersatz
-- [ ] 1.2 `POST /me/share`, `DELETE /me/share`, `GET /profiles/{slug}` mit Filterung laut design.md
-- [ ] 1.3 `POST /wishlist/import` über `amazon.py` (Host-Prüfung), Limit 50, IP-Ratenbegrenzung
-- [ ] 1.5 `POST /wishes/price` (Preistracker) und Preisfelder in der Profil-Filterung
-- [ ] 1.4 `docs/api.md` ergänzen, selfcheck erweitern, Deploy, Live-Test
+- [x] 1.1 Spalte `users.profile_slug` (Migration in `db.py`), Speicher-Ersatz
+- [x] 1.2 `POST /me/share`, `DELETE /me/share`, `GET /profiles/{slug}` mit Filterung laut design.md
+- [x] 1.3 `POST /wishlist/import` über `amazon.py` (Host-Prüfung), Limit 50, IP-Ratenbegrenzung
+- [x] 1.5 `POST /wishes/price` (Preistracker) und Preisfelder in der Profil-Filterung
+- [x] 1.4 `docs/api.md` ergänzen, selfcheck erweitern, Deploy, Live-Test
 
 ## 2. App und Web (Paket F, `apps/mobile`)
 

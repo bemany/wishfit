@@ -455,8 +455,9 @@ assert pub.status_code == 200
 pj = pub.json()
 assert set(pj) == {"name", "color", "wishes", "updated_at"} and pj["updated_at"] == r.json()["updated_at"]
 assert pj["name"] == ("Mia " + "x" * 80)[:60] and pj["color"] == "#ff8800" and len(pj["wishes"]) == 97  # first 100 raw entries, 3 of the 6 odd ones are valid
-assert pj["wishes"][0] == {"title": "Kaffee", "price_eur": None, "url": None, "image_url": None}
-assert pj["wishes"][1] == {"title": "Lampe", "price_eur": 19.9, "url": "https://shop.example/l", "image_url": None}
+E = {"source": None, "added_at": None, "price": None}
+assert pj["wishes"][0] == {"title": "Kaffee", "price_eur": None, "url": None, "image_url": None, **E}
+assert pj["wishes"][1] == {"title": "Lampe", "price_eur": 19.9, "url": "https://shop.example/l", "image_url": None, **E}
 assert len(pj["wishes"][2]["title"]) == 200 and pj["wishes"][2]["price_eur"] is None and pj["wishes"][2]["url"] is None
 txt = pub.text
 assert "mia@example.com" not in txt and "secret" not in txt and "Tom" not in txt and "javascript" not in txt and f"share-a-{tag}" not in txt
@@ -484,7 +485,7 @@ imp = lambda url="https://www.amazon.de/hz/wishlist/ls/ABC123", ip="1.1.1.1", **
 amazon.fetch = lambda url: ([{"title": f"P{i}", "price": "1,00 €", "price_eur": 1.0, "url": f"https://www.amazon.de/dp/B{i:09d}", "image_url": "https://m.media-amazon.com/images/I/x.jpg"} for i in range(60)], 200)
 r = imp()
 assert r.status_code == 200 and r.json()["source"] == "amazon_wishlist" and len(r.json()["items"]) == 50
-assert r.json()["items"][0] == {"title": "P0", "price_eur": 1.0, "url": "https://www.amazon.de/dp/B000000000", "image_url": "https://m.media-amazon.com/images/I/x.jpg"}
+assert r.json()["items"][0] == {"title": "P0", "price_eur": 1.0, "url": "https://www.amazon.de/dp/B000000000", "image_url": "https://m.media-amazon.com/images/I/x.jpg", "source": "amazon"}
 r = imp("https://example.com/list")
 assert r.status_code == 422 and "not supported" in r.json()["detail"]
 assert "nicht unterstützt" in imp("https://example.com/list", language="de").json()["detail"]
@@ -512,6 +513,46 @@ got, st = amazon.fetch("https://www.amazon.de/hz/wishlist/ls/ABC123")
 assert st == 200 and got[0] == {"title": "Lampe & Co", "price": "1.299,00\xa0€", "price_eur": 1299.0, "url": "https://www.amazon.de/dp/B0CR45D9F7",
                                 "image_url": "https://m.media-amazon.com/images/I/a._SS135_.jpg"}
 assert got[1]["price_eur"] is None and got[1]["url"] is None and got[1]["image_url"] is None
+# profile filter: source, added_at, price
+pw = profiles.public_profile({"name": "A", "wishes": [
+    {"title": "X", "source": "snap", "added_at": 1700000000000, "price": {"price_eur": 9.5, "offer_count": 3, "in_stock": True, "trend": "down",
+     "change_percent": -4.2, "url": "https://idealo.de/x", "image_url": "javascript:1", "checked_at": "2026-11-27T10:00:00+00:00", "evil": 1}},
+    {"title": "Y", "source": "hack", "added_at": "now", "price": "x"}]}, None)["wishes"]
+assert pw[0]["source"] == "snap" and pw[0]["added_at"] == 1700000000000
+assert pw[0]["price"] == {"price_eur": 9.5, "offer_count": 3, "in_stock": True, "trend": "down", "change_percent": -4.2,
+                          "url": "https://idealo.de/x", "image_url": None, "checked_at": "2026-11-27T10:00:00+00:00"}
+assert pw[1]["source"] is None and pw[1]["added_at"] is None and pw[1]["price"] is None
 print("profile ok: share/unshare, filtering, import")
+
+# price tracker: /wishes/price
+pc = []
+def price_tool(tool, arguments, session=None):
+    pc.append(tool)
+    q = arguments.get("query", "")
+    if tool == "search_products":
+        if q == "nothing":
+            return {"results": []}
+        if q == "single":
+            return {"results": [{"productRef": "s", "name": "Single", "price": "7,00 \u20ac", "url": "https://www.idealo.de/relocator/relocate?offerKey=a", "totalOfferCount": 1}]}
+        return {"results": [{"productRef": "c", "name": "Cat", "price": "20,00 \u20ac", "url": "https://www.idealo.de/preisvergleich/c.html", "imageUrl": "https://img/c.jpg", "totalOfferCount": 5}]}
+    if tool == "get_product_offers":
+        return {"offers": [{"price": "18,50 \u20ac", "shop": {"name": "S"}}]}
+    return {"priceTrend": {"periodDays": 30, "statistics": {"priceChangePercent": -8.0}}}
+main.idealo.call_tool = price_tool
+price_ip = {"x-forwarded-for": "9.9.9.9"}
+r = api.post("/wishes/price", json={"wishes": [{"title": "x"}]}, headers=price_ip)
+assert r.status_code == 503  # idealo not configured
+os.environ["IDEALO_MCP_URL"], os.environ["IDEALO_CLIENT_ID"] = "stub", "stub"
+r = api.post("/wishes/price", json={"wishes": [{"title": "Cat"}, {"title": "nothing"}, {"title": "single"}, {"title": " "}]}, headers=price_ip)
+assert r.status_code == 200, r.text
+pr = r.json()["prices"]
+assert len(pr) == 4 and pr[1] is None and pr[3] is None
+assert pr[0]["price_eur"] == 18.5 and pr[0]["trend"] == "down" and pr[0]["change_percent"] == -8.0 and pr[0]["in_stock"] is True and pr[0]["offer_count"] == 5
+assert pr[0]["image_url"] == "https://img/c.jpg" and pr[0]["checked_at"].startswith("20")
+assert pr[2]["price_eur"] == 7.0 and pr[2]["trend"] is None and pr[2]["change_percent"] is None
+assert main._trend(2.9) == "stable" and main._trend(3.0) == "up" and main._trend(-3.0) == "down" and main._trend(None) is None
+assert api.post("/wishes/price", json={"wishes": [{"title": "t"}] * 21}, headers=price_ip).status_code == 422
+os.environ["IDEALO_MCP_URL"] = os.environ["IDEALO_CLIENT_ID"] = ""
+print("price   ok: /wishes/price order, trend, single offer, limits")
 
 print("ALL CHECKS PASSED")

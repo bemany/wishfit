@@ -101,3 +101,24 @@ are trimmed and lower-cased.
   profile object (with `updatedAt`) or null. The server stores both as given.
 - `POST /recommend` accepts an optional token; with a valid token the result belongs to the account.
   An invalid token answers 401. `GET /results/{id}` and `GET /trace/{id}` stay public.
+
+## Profile link, wishlist import, price tracker (change `profile-link-friends`)
+
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| POST | `/wishlist/import` | no | `{url, language?}` (`"en"` default, `"de"` for the error text) | 200 `{items: [{title, price_eur, url, image_url, source: "amazon"}], source: "amazon_wishlist"}` (max 50 items); 422 unsupported link or empty list; 429 more than 10 per minute per IP (first `x-forwarded-for` address); 502 Amazon blocked or unreachable |
+| POST | `/me/share` | yes | – | 200 `{slug, url}`; same slug on repeat; `url` = `PUBLIC_WEB_URL` (default `https://wishfit-web-test.vercel.app`) + `/u/<slug>` |
+| DELETE | `/me/share` | yes | – | 204, the old link answers 404 afterwards (a new share draws a new slug) |
+| GET | `/profiles/{slug}` | no | – | 200 `{name, color, wishes, updated_at}`; 404 unknown or unshared. No e-mail, no id |
+| POST | `/wishes/price` | no | `{wishes: [{title, url?}]}` (max 20) | 200 `{prices: [price \| null]}` in request order; 422 more than 20; 429 same IP limit as import; 503 idealo not configured |
+
+- Public profile is filtered server-side from the synced profile: `name` (max 60), `color` (`#rrggbb` or a
+  known name up to 20 characters, else null), `wishes` (max 100; a string becomes `{title}`; each wish has
+  `title` (max 200), `price_eur` (number or null), `url`, `image_url` (http(s) only, max 2000),
+  `source` (`amazon|snap|typed|link` or null), `added_at` (number or null), `price` (price object or null)).
+  A shared account without a saved profile returns `{name: "", color: null, wishes: [], updated_at: null}`.
+- `price` = `{price_eur, offer_count, in_stock, trend: "down"|"stable"|"up"|null, change_percent, url, image_url, checked_at}`.
+  Trend threshold is ±3 % over 30 days. Best idealo hit per wish (`search_products` with `availableOnly`,
+  then offers and 30-day history for a catalog hit; single-merchant hits have no history, so trend is null).
+  At most 3 parallel idealo calls, no model call.
+- `DELETE /me` removes the slug with the account.

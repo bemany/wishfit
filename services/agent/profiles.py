@@ -38,6 +38,33 @@ def _price(value) -> float | None:
     return None
 
 
+WISH_SOURCES = {"amazon", "snap", "typed", "link"}
+TRENDS = {"down", "stable", "up"}
+
+
+def _num(value) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def _price_info(raw) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    count = raw.get("offer_count")
+    checked = raw.get("checked_at")
+    return {
+        "price_eur": _price(raw.get("price_eur")),
+        "offer_count": count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None,
+        "in_stock": raw["in_stock"] if isinstance(raw.get("in_stock"), bool) else None,
+        "trend": raw["trend"] if raw.get("trend") in TRENDS else None,
+        "change_percent": _num(raw.get("change_percent")),
+        "url": _url(raw.get("url")),
+        "image_url": _url(raw.get("image_url")),
+        "checked_at": checked if isinstance(checked, str) and re.match(r"^\d{4}-\d\d-\d\dT[\d:.+\-Z]{1,40}$", checked) else None,
+    }
+
+
 def _wish(raw) -> dict | None:
     if isinstance(raw, str):
         raw = {"title": raw}
@@ -46,7 +73,16 @@ def _wish(raw) -> dict | None:
     title = raw["title"].strip()[:200]
     if not title:
         return None
-    return {"title": title, "price_eur": _price(raw.get("price_eur")), "url": _url(raw.get("url")), "image_url": _url(raw.get("image_url"))}
+    added = _num(raw.get("added_at"))
+    return {
+        "title": title,
+        "price_eur": _price(raw.get("price_eur")),
+        "url": _url(raw.get("url")),
+        "image_url": _url(raw.get("image_url")),
+        "source": raw["source"] if raw.get("source") in WISH_SOURCES else None,
+        "added_at": added if added is not None and added >= 0 else None,
+        "price": _price_info(raw.get("price")),
+    }
 
 
 def public_profile(profile, updated_at: str | None) -> dict:
@@ -111,6 +147,10 @@ def _client_ip(request: Request) -> str:
     return first or (request.client.host if request.client else "unknown")
 
 
+def limited(request: Request) -> bool:
+    return _limited(_client_ip(request))
+
+
 @router.post("/wishlist/import")
 def import_wishlist(req: ImportRequest, request: Request) -> dict:
     de = req.language == "de"
@@ -132,7 +172,8 @@ def import_wishlist(req: ImportRequest, request: Request) -> dict:
         raise HTTPException(422, "In dieser Wunschliste wurden keine Produkte gefunden. Ist sie öffentlich?" if de
                             else "No products found in this wishlist. Is it public?")
     return {
-        "items": [{"title": i["title"][:200], "price_eur": i.get("price_eur"), "url": i.get("url"), "image_url": i.get("image_url")}
+        "items": [{"title": i["title"][:200], "price_eur": i.get("price_eur"), "url": i.get("url"), "image_url": i.get("image_url"),
+                   "source": "amazon"}
                   for i in items[:MAX_IMPORT]],
         "source": "amazon_wishlist",
     }
