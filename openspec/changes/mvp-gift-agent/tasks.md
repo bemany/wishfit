@@ -20,8 +20,8 @@
 
 ## 4. Mobile
 
-- [ ] 4.1 Ergebnis-Screen per ID oder Deep Link
-- [ ] 4.2 Simulator-Build, Test auf zwei Simulatoren
+- [x] 4.1 Ergebnis-Screen per ID oder Deep Link
+- [x] 4.2 Simulator-Build, Test auf zwei Simulatoren
 - [ ] 4.3 EAS Update und lokaler Build für TestFlight
 
 ## 5. Abgabe
