@@ -3,7 +3,9 @@
 import json
 import os
 import secrets
+import re
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import OpenAI, OpenAIError
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 import amazon
 import auth
@@ -47,6 +49,16 @@ def invalid_request(_, exc: RequestValidationError):
     return JSONResponse({"detail": detail}, status_code=422)
 
 
+def clean_text(text: str | None) -> str | None:
+    """Drop control and placeholder characters (iOS pastes U+FFFC for an attachment in the text field)."""
+    if text is None:
+        return None
+    return "".join(
+        ch for ch in text
+        if ch in "\n\t" or (unicodedata.category(ch) not in ("Cc", "Cs", "Co") and ch not in "\ufffc\ufffd\ufff9\ufffa\ufffb\u200b\ufeff")
+    )
+
+
 # --- contract models -------------------------------------------------------
 
 
@@ -62,6 +74,11 @@ class RecommendRequest(BaseModel):
     demo_case: Literal["simple", "chaotic", "chat"] | None = None
     # a photo of a product (JPEG or PNG, base64 without a data: prefix); a vision model names what it shows
     image_base64: str | None = Field(default=None, max_length=6_000_000)
+
+    @field_validator("input_text", "wishes", "preferences", "occasion", "recipient_name", mode="after")
+    @classmethod
+    def clean(cls, value):
+        return [clean_text(v) for v in value] if isinstance(value, list) else clean_text(value)
 
     @model_validator(mode="after")
     def some_input(self):
@@ -224,6 +241,30 @@ def _history_summary(raw: dict) -> dict | None:
     }
 
 
+def is_single_offer(match: dict) -> bool:
+    """idealo search also returns single merchant offers (redirect link, no catalog product):
+    they have no offer list and no price history."""
+    url = match.get("product_url") or ""
+    return "offerKey=" in url or "oc_offer" in url or "relocator/relocate" in url
+
+
+def offer_from_hit(match: dict) -> list[dict]:
+    """A hit with price and link but no merchant offers becomes one offer; unknown merchant and shipping stay null."""
+    if match.get("price_eur") is None or not match.get("product_url"):
+        return []
+    return [{
+        "merchant": None,
+        "price_eur": match["price_eur"],
+        "shipping_eur": None,
+        "delivery_estimate": None,
+        "delivery_status": None,
+        "free_return_days": None,
+        "offer_url": match["product_url"],
+        "available": True,  # the search ran with availableOnly
+        "derived_from_search_hit": True,
+    }]
+
+
 def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
     """Live idealo data over the idealo MCP: per wish a catalog search within budget, then offers
     (with shipping and delivery) and the 30-day price history for the two best matches."""
@@ -248,11 +289,18 @@ def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
             matches = found if isinstance(found, list) else []
             data.append({"wish": wish, "matches": matches, **({"search_error": found["error"]} if isinstance(found, dict) else {})})
             for m in matches[:2]:
+                if is_single_offer(m):
+                    m["offers"], m["price_history_30d"] = offer_from_hit(m), None  # nothing to look up for these
+                    continue
                 ref = {"productRef": m["productRef"]}
                 jobs.append((m, "offers", pool.submit(_idealo_call, session, "get_product_offers", ref, trace, _offers_summary)))
                 jobs.append((m, "price_history_30d", pool.submit(_idealo_call, session, "get_product_price_history", ref, trace, _history_summary)))
         for match, key, future in jobs:
             match[key] = future.result()
+    for entry in data:
+        for m in entry["matches"][:2]:
+            if not m.get("offers") or isinstance(m["offers"], dict):  # empty or failed lookup
+                m["offers"] = offer_from_hit(m)
     return data
 
 
@@ -285,7 +333,10 @@ two carry "offers" (merchant, price_eur, shipping_eur, delivery_estimate, offer_
 (current, lowest, highest, average, change_percent). "understood" (may be null) is what step 1 took from the \
 giver's free-form input: prefer ideas that fit the person, not just the cheapest item. Take offer_url, \
 image_url, merchant, price and shipping from ONE concrete offer. Price history covers 30 days; say so. \
-A missing shipping_eur is null, not 0.
+A missing shipping_eur is null, not 0. A match can carry a single offer derived from the search hit \
+("derived_from_search_hit": true): price and link are real, merchant, shipping and delivery are unknown (null) \
+and there is no price history. That is a usable offer: recommend it, keep the unknowns null and name them \
+openly in reason and in a signal (for example "merchant and shipping not known, check on idealo").
 
 Return exactly one JSON object, no prose, no markdown:
 {
@@ -308,7 +359,7 @@ Recommendation = {
 }
 
 Rules:
-- "recommendation": exactly one top and 2-3 alternatives. Price plus shipping of the top must fit the budget.
+- "recommendation": exactly one top and up to 3 alternatives (fewer if the data has fewer usable matches). Price plus shipping of the top must fit the budget.
 - action "buy": good price now and available. "wait": price history says it is clearly above its usual level \
 or it is temporarily unavailable. "alternative": a different product than the one wished for.
 - signals: at least one per recommendation, the concrete idealo data points that carry the decision \
@@ -330,7 +381,17 @@ words, or what you need to know. Never empty.
 Do not return the same product again unless the giver asks for it. "Cheaper" means a total clearly below \
 previous_pick.total_eur.
 - Prefer a recommendation: if at least one match fits the budget and the person, recommend it and put remaining \
-doubts into uncertainty. Use needs_clarification only when no match is usable at all."""
+doubts into uncertainty. Use needs_clarification only when nothing fits the person at all or the budget is not \
+enough for any match. An unknown merchant or shipping cost is NOT a reason to ask.
+- Prefer matches that fit ALL named traits (for example red AND glittery). A brand or theme the giver mentions \
+(for example a motorcycle brand) is a soft wish: use it when a match fits, otherwise recommend the best match \
+for the other traits and say that the theme is missing.
+- "must_recommend" true means you already asked twice in this conversation: you MUST return status \
+"recommendation" now with the best available match (and 2-3 alternatives if there are any), however imperfect; \
+state the doubts in reason and uncertainty. Also for follow-ups like "something else": give the next best match, \
+do not ask again.
+- Alternatives are different products than top, taken from the matches; if fewer than 2 other matches exist, \
+give fewer."""
 
 
 GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
@@ -458,12 +519,14 @@ def understand(req: RecommendRequest, trace: dict, previous_pick: dict | None = 
 
 
 def decide(req: RecommendRequest, understood: Understood | None, idealo: list[dict], trace: dict,
-           previous_pick: dict | None = None, follow_up: str | None = None) -> tuple[Decision, str]:
+           previous_pick: dict | None = None, follow_up: str | None = None,
+           must_recommend: bool = False) -> tuple[Decision, str]:
     """Step 2, the deciding call: buy, wait or alternative, from the request plus the idealo data."""
     user = {
         "request": req.model_dump(exclude={"demo_case", "input_text", "previous_id", "image_base64"}),
         "previous_pick": previous_pick,
         "follow_up": follow_up,
+        "must_recommend": must_recommend,
         "understood": understood.model_dump() if understood else None,
         "idealo_data": idealo,
     }
@@ -471,7 +534,14 @@ def decide(req: RecommendRequest, understood: Understood | None, idealo: list[di
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ]
-    return call_model("decide", messages, Decision, trace)
+    decision, model = call_model("decide", messages, Decision, trace)
+    if must_recommend and decision.status != "recommendation":
+        messages = messages + [
+            {"role": "assistant", "content": decision.model_dump_json()},
+            {"role": "user", "content": 'You already asked twice. Return status "recommendation" now with the best match from the data.'},
+        ]
+        decision, model = call_model("decide", messages, Decision, trace)
+    return decision, model
 
 
 def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest:
@@ -490,6 +560,74 @@ def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest
         block = f"Hinweis: Die verlinkte Amazon-Wunschliste konnte nicht gelesen werden ({status})."
     text = ((req.input_text or "") + "\n\n" + block)[:20000]
     return req.model_copy(update={"input_text": text, "wishes": [w for w in req.wishes if not amazon.find_url(w)]})
+
+
+MAX_AMAZON_LINKS = 3
+AMAZON_BUDGET_S = 6.0
+
+
+def with_amazon_link(req: RecommendRequest, trace: dict) -> RecommendRequest:
+    """Amazon short links and product links in the new message: resolve the redirect (only Amazon hosts),
+    use the product slug as the wish. Without a slug the link is dropped (never handed to the model); the trace
+    keeps only resolved/rejected/failed and the ASIN. Runs before the message is stored, so follow-ups do not resolve again."""
+    deadline = time.monotonic() + AMAZON_BUDGET_S
+    done = 0
+
+    def replace(text: str) -> str:
+        nonlocal done
+        for url in amazon.find_product_urls(text):
+            if done >= MAX_AMAZON_LINKS or time.monotonic() >= deadline:
+                term, status, asin = None, "skipped", None
+            else:
+                done += 1
+                term, status, asin = amazon.resolve_product(url, max(0.5, min(5.0, deadline - time.monotonic())))
+            entry = {"type": "amazon_link", "status": status, "asin": asin, "search_term": term}
+            if status != "rejected":
+                entry["url"] = url.split("?")[0]
+            trace["sources"].append(entry)
+            text = text.replace(url, f"Amazon-Produkt (aus Link): {term}" if term else "")
+        return text.strip()
+
+    update = {}
+    if req.input_text and amazon.find_product_urls(req.input_text):
+        update["input_text"] = replace(req.input_text)
+    if any(amazon.find_product_urls(w) for w in req.wishes):
+        update["wishes"] = [w for w in (replace(w) for w in req.wishes) if w]
+    return req.model_copy(update=update) if update else req
+
+
+def enforce_budget(decision: Decision, req: RecommendRequest) -> Decision:
+    """Never trust the model on the budget: a top pick over budget is replaced by the first alternative that fits,
+    else the answer becomes a clarification. Unknown shipping is always named."""
+    de = req.language != "en"
+    if decision.status != "recommendation" or decision.top is None:
+        return decision
+
+    def total(rec: Recommendation) -> float | None:
+        return None if rec.price_eur is None else rec.price_eur + (rec.shipping_eur or 0)
+
+    def fits(rec: Recommendation) -> bool:
+        t = total(rec)
+        return t is None or req.budget_eur is None or t <= req.budget_eur
+
+    def name_shipping(rec: Recommendation) -> None:
+        text = (rec.reason + " " + " ".join(f"{s.label} {s.value}" for s in rec.signals)).lower()
+        if rec.shipping_eur is None and not re.search(r"versand[^.]*(unbekannt|nicht bekannt)|shipping[^.]*(unknown|not known)", text):
+            rec.signals.append(Signal(type="budget", label="Versand" if de else "Shipping", value="Versand unbekannt" if de else "Shipping unknown"))
+
+    if not fits(decision.top):
+        ok = next((a for a in decision.alternatives if fits(a)), None)
+        if ok is None:
+            reason = (f"Kein Treffer passt ins Budget von {req.budget_eur:g} €." if de else f"No match fits the budget of {req.budget_eur:g} EUR.")
+            question = ("Darf das Budget etwas höher sein oder soll ich etwas anderes suchen?" if de else "Can the budget be a bit higher, or should I look for something else?")
+            return Decision(status="needs_clarification", reply=f"{reason} {question}",
+                            uncertainty=Uncertainty(reasons=[reason], question=question))
+        rest = [a for a in [decision.top, *decision.alternatives] if a is not ok][:3]
+        note = ("Der erste Vorschlag lag über dem Budget, deshalb dieser: " if de else "The first pick was over budget, so this one instead: ")
+        decision = decision.model_copy(update={"top": ok, "alternatives": rest, "reply": note + ok.product_name})
+    for rec in [decision.top, *decision.alternatives]:
+        name_shipping(rec)
+    return decision
 
 
 # --- endpoints -------------------------------------------------------------
@@ -525,7 +663,7 @@ def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict
     update = dict(basics)
     if len(messages) > 1:
         update["input_text"] = "\n".join([messages[0]] + [f"Nachtrag: {m}" for m in messages[1:]])
-    return req.model_copy(update=update), {"messages": messages, **basics}, previous_pick
+    return req.model_copy(update=update), {"messages": messages, **basics, "clarify_streak": earlier.get("clarify_streak", 0)}, previous_pick
 
 
 
@@ -534,6 +672,11 @@ def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_u
     result_id = "r_" + secrets.token_hex(6)
     trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
     req = with_photo(req, trace)  # before the conversation, so the named product is part of the stored message
+    req = with_amazon_link(req, trace)  # likewise: the stored message holds the resolved term, not the link
+    if not req.wishes and not (req.input_text or "").strip():
+        raise HTTPException(422, "I could not read that link. Describe what you are looking for in a few words."
+                            if req.language == "en" else
+                            "Den Link kann ich keinem Produkt zuordnen. Beschreib kurz, wonach du suchst.")
     req, conversation, previous_pick = continue_conversation(req)
     trace["conversation"] = conversation
     req = with_amazon_wishlist(req, trace)
@@ -554,7 +697,10 @@ def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_u
         model = trace["model_calls"][-1]["model"]
     else:
         follow_up = conversation["messages"][-1] if req.previous_id else None
-        decision, model = decide(req, understood, idealo, trace, previous_pick, follow_up)
+        decision, model = decide(req, understood, idealo, trace, previous_pick, follow_up,
+                                 must_recommend=conversation["clarify_streak"] >= 2)
+        decision = enforce_budget(decision, req)
+        conversation["clarify_streak"] = conversation["clarify_streak"] + 1 if decision.status == "needs_clarification" else 0
     response = RecommendResponse(
         **decision.model_dump(),
         understood=understood,
