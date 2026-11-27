@@ -12,9 +12,11 @@
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio.",
         "NSSpeechRecognitionUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Wishfit can use a photo of a product to find it and compare prices. Photos are only read when you pick one.",
+        "NSMotionUsageDescription": "Wishfit does not track your movement; this is required by a system library the app includes."
       },
-      "buildNumber": "1"
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {
