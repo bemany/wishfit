@@ -1,0 +1,69 @@
+{
+  "source": "snapshot",
+  "demo_case": "chaotic",
+  "note": "DEMO SNAPSHOT DATA. Hand-written, idealo-style, NOT fetched from the idealo MCP. Prices, merchants and URLs are illustrative. Replace with a real MCP snapshot once the MCP is connected.",
+  "captured_at": "2026-11-27",
+  "wishes": [
+    {
+      "wish": "die guten Kopfhörer von Sony",
+      "matches": [
+        {
+          "product_name": "Sony WH-1000XM5 Over-Ear Noise Cancelling, schwarz",
+          "category": "Kopfhörer > Over-Ear > Noise Cancelling",
+          "match_confidence": "likely (most searched Sony headphone), not certain",
+          "price_history_90d": {"lowest": 279.00, "highest": 349.00, "average": 312.50},
+          "offers": [
+            {"merchant": "Demo-Händler Klangwerk", "price_eur": 189.00, "shipping_eur": 5.99, "available": true, "delivery_estimate": "unbekannt", "offer_url": "https://www.idealo.de/", "flag": "price 39 % below 90-day average, possibly refurbished or wrong listing"},
+            {"merchant": "Demo-Händler Audiohaus", "price_eur": 349.00, "shipping_eur": 0.0, "available": true, "delivery_estimate": "1-2 Werktage", "offer_url": "https://www.idealo.de/"},
+            {"merchant": "Demo-Händler Elektrowelt", "price_eur": 299.00, "shipping_eur": 0.0, "available": false, "delivery_estimate": null, "offer_url": "https://www.idealo.de/"},
+            {"merchant": "Demo-Händler Technikpunkt", "price_eur": 305.90, "shipping_eur": 4.99, "available": false, "delivery_estimate": null, "offer_url": "https://www.idealo.de/"},
+            {"merchant": "Demo-Händler Mobilshop", "price_eur": 309.00, "shipping_eur": 0.0, "available": false, "delivery_estimate": null, "offer_url": "https://www.idealo.de/"},
+            {"merchant": "Demo-Händler Gadgetlager", "price_eur": 311.50, "shipping_eur": 3.99, "available": false, "delivery_estimate": null, "offer_url": "https://www.idealo.de/"}
+          ]
+        },
+        {
+          "product_name": "Sony WF-1000XM5 In-Ear Noise Cancelling, schwarz",
+          "category": "Kopfhörer > In-Ear > True Wireless",
+          "match_confidence": "possible",
+          "price_history_90d": {"lowest": 219.00, "highest": 269.00, "average": 241.00},
+          "offers": [
+            {"merchant": "Demo-Händler Audiohaus", "price_eur": 229.00, "shipping_eur": 0.0, "available": true, "delivery_estimate": "1-2 Werktage", "offer_url": "https://www.idealo.de/"}
+          ],
+          "offer_count": 9
+        },
+        {
+          "product_name": "Sony WH-CH720N Over-Ear Noise Cancelling, schwarz",
+          "category": "Kopfhörer > Over-Ear > Noise Cancelling",
+          "match_confidence": "possible",
+          "price_history_90d": {"lowest": 84.90, "highest": 119.00, "average": 97.30},
+          "offers": [
+            {"merchant": "Demo-Händler Elektrowelt", "price_eur": 89.00, "shipping_eur": 0.0, "available": true, "delivery_estimate": "2-3 Werktage", "offer_url": "https://www.idealo.de/"}
+          ],
+          "offer_count": 11
+        },
+        {
+          "product_name": "Sony WH-CH520 On-Ear Bluetooth, schwarz",
+          "category": "Kopfhörer > On-Ear",
+          "match_confidence": "possible",
+          "price_history_90d": {"lowest": 39.99, "highest": 59.99, "average": 46.20},
+          "offers": [
+            {"merchant": "Demo-Händler Technikpunkt", "price_eur": 44.99, "shipping_eur": 3.99, "available": true, "delivery_estimate": "2-3 Werktage", "offer_url": "https://www.idealo.de/"}
+          ],
+          "offer_count": 14
+        }
+      ]
+    },
+    {
+      "wish": "irgendwas zum Kaffee machen",
+      "matches": [],
+      "note": "No product match. The query maps to several unrelated categories with very different price ranges.",
+      "category_candidates": [
+        {"category": "Kaffeezubereiter > French Press", "product_count": 412, "price_range_eur": [9.99, 89.00]},
+        {"category": "Filterkaffeemaschinen", "product_count": 655, "price_range_eur": [19.99, 349.00]},
+        {"category": "Siebträgermaschinen", "product_count": 380, "price_range_eur": [89.00, 2499.00]},
+        {"category": "Kaffeemühlen", "product_count": 520, "price_range_eur": [14.99, 699.00]},
+        {"category": "Kaffeevollautomaten", "product_count": 298, "price_range_eur": [249.00, 2999.00]}
+      ]
+    }
+  ]
+}
