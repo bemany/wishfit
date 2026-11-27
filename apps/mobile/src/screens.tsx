@@ -13,7 +13,7 @@ import { canOpenSettings, openLink, openSettings, shareText } from './platform';
 import { askMicPermission, dictate, speechAvailable } from './speech';
 import { getLanguage, locale, t, wishCount, type Key, type Lang } from './i18n';
 import { C, F, TAG_COLORS, eur } from './theme';
-import { Body, Btn, Bubble, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Tag, TopBar, s } from './ui';
+import { Body, Btn, Bubble, LanguagePicker, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Tag, TopBar, s } from './ui';
 
 const ACTION: Record<Recommendation['action'], Key> = { buy: 'actionBuy', wait: 'actionWait', alternative: 'actionAlternative' };
 const actionOf = (a: Recommendation['action']) => (ACTION[a] ? t(ACTION[a]) : '');
@@ -208,7 +208,7 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
 }
 
 // Me: my own tag and wishlist. Stays on this phone unless signed in; shared as a profile link
-export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: Account; onChange: (me: Me) => void; onBack: () => void }) {
+export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { me: Me; account: Account; lang: Lang; onLanguage: (lang: Lang) => void; onChange: (me: Me) => void; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [wish, setWish] = useState('');
@@ -261,6 +261,10 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
             <TextInput accessibilityLabel={t('newWish')} value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder={t('addPlaceholder')} placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
             <Round icon="plus" label={t('addWishButton')} ink size={52} onPress={addWish} />
           </View>
+        </View>
+        <View style={{ gap: 8 }}>
+          <Mono mute>{t('language')}</Mono>
+          <LanguagePicker value={lang} onChange={onLanguage} />
         </View>
         <AccountPanel account={account} />
       </ScrollView>

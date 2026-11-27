@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { t } from './i18n';
+import { t, type Lang } from './i18n';
 import { C, F } from './theme';
 
 const ICONS = {
@@ -73,6 +73,17 @@ export const Btn = ({ label, onPress, secondary, disabled }: { label: string; on
   <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.btn, secondary && { backgroundColor: C.paper }, disabled && { opacity: 0.3 }]}>
     <Text style={[s.btnText, secondary && { color: C.ink }]}>{label}</Text>
   </Pressable>
+);
+
+// Deutsch / English, the chosen one filled
+export const LanguagePicker = ({ value, onChange }: { value: Lang; onChange: (lang: Lang) => void }) => (
+  <View style={{ flexDirection: 'row', gap: 8 }}>
+    {(['de', 'en'] as const).map((l) => (
+      <View key={l} style={{ flex: 1 }}>
+        <Btn label={l === 'de' ? 'Deutsch' : 'English'} secondary={l !== value} onPress={() => onChange(l)} />
+      </View>
+    ))}
+  </View>
 );
 
 export const Round = ({ icon, label, onPress, ink, size = 44, fill }: { icon: keyof typeof ICONS; label: string; onPress: () => void; ink?: boolean; size?: number; fill?: string }) => (

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
-import { getLanguage, isLang, t } from './i18n';
+import { getLanguage, isLang, t, type Lang } from './i18n';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
@@ -104,6 +104,8 @@ export type Account = {
   verify: (email: string, code: string) => Promise<void>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  // tells the account the app language, for push texts; does nothing when signed out
+  saveLanguage: (lang: Lang) => void;
 };
 
 export function explain(e: unknown, fallback: string): string {
@@ -294,7 +296,11 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setNotStored(!setSession(next));
     setSessionState(next);
     setDevCode(null);
+    saveLanguage(getLanguage());
     sync(true);
+  };
+  const saveLanguage = (lang: Lang) => {
+    if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
   const signOut = async () => {
     await call('POST', '/auth/logout').catch(() => {});
@@ -306,5 +312,5 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     drop();
   };
 
-  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson };
+  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage };
 }

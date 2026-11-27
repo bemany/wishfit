@@ -15,7 +15,7 @@ import { useAccount } from './src/account';
 import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
-import { t } from './src/i18n';
+import { getLanguage, setLanguage, t, type Lang } from './src/i18n';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
@@ -61,6 +61,8 @@ function Root() {
   const [people, setPeople] = useState<Person[]>(loadPeople);
   const [me, setMe] = useState<Me>(loadMe);
   const [view, setView] = useState<View_>({ name: 'people' });
+  // every screen reads its texts through t(), so a new language re-renders them from here
+  const [lang, setLang] = useState<Lang>(getLanguage);
   // ponytail: one request at a time across all threads
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
@@ -82,6 +84,13 @@ function Root() {
     meRef.current = stamped;
     setMe(stamped);
     saveMe(stamped);
+  };
+
+  const changeLanguage = (next: Lang) => {
+    setLanguage(next);
+    setLang(next);
+    if (meRef.current.language !== next) changeMe({ ...meRef.current, language: next });
+    account.saveLanguage(next);
   };
 
   // Opening my profile (and importing into it) refreshes prices older than 6 h; one request at a time,
@@ -232,6 +241,8 @@ function Root() {
         <MeScreen
           me={me}
           account={account}
+          lang={lang}
+          onLanguage={changeLanguage}
           onBack={goBack}
           onChange={changeMe}
         />
