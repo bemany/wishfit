@@ -13,7 +13,12 @@ from fastapi.testclient import TestClient
 import main
 
 EXAMPLES = Path(__file__).parent / "examples"
-os.environ.pop("DATABASE_URL", None)  # always in-memory here
+if not os.environ.get("SELFCHECK_USE_DB"):
+    os.environ.pop("DATABASE_URL", None)  # in-memory unless SELFCHECK_USE_DB=1 (then the real DATABASE_URL is used)
+    os.environ.pop("DATABASE_URL_UNPOOLED", None)
+os.environ["AUTH_SECRET"] = "selfcheck-secret"
+os.environ["AUTH_DEV_CODES"] = "1"
+os.environ.pop("RESEND_API_KEY", None)  # test mode: code comes back as dev_code
 for _k in ("IDEALO_MCP_URL", "IDEALO_CLIENT_ID", "LLM_BASE_URL"):
     os.environ[_k] = ""  # never call the real idealo MCP or a real model from the self-check
 os.environ["LLM_MODEL"] = "stub-model"
@@ -150,4 +155,143 @@ r = api.post("/recommend", json={"wishes": [], "budget_eur": 10, "occasion": "x"
 assert r.status_code == 422 and isinstance(r.json()["detail"], str)
 assert api.get("/results/r_missing").status_code == 404 and api.get("/trace/r_missing").status_code == 404
 print("errors  ok: 502 missing key, 502 invalid JSON twice, 502 idealo MCP missing, 422, 404")
+# --- accounts: code sign-in, sessions, sync, delete ---------------------------
+import db
+import secrets as _secrets
+
+tag = _secrets.token_hex(4)
+
+
+def unthrottle(email: str) -> None:
+    """Pretend the last code request was 2 minutes ago, so the 60 s gap does not block the next sign-in."""
+    if db.use_postgres():
+        with db.connect() as conn:
+            conn.execute("update auth_codes set created_at = created_at - interval '2 minutes' where email = %s", (email,))
+        return
+    from datetime import timedelta
+
+    for c in db._codes:
+        if c["email"] == email:
+            c["created_at"] -= timedelta(minutes=2)
+
+
+def sign_in(email: str) -> tuple[dict, dict]:
+    unthrottle(email.strip().lower())
+    r = api.post("/auth/request-code", json={"email": email})
+    assert r.status_code == 200 and len(r.json()["dev_code"]) == 6, r.text
+    r2 = api.post("/auth/verify", json={"email": email, "code": r.json()["dev_code"]})
+    assert r2.status_code == 200, r2.text
+    return r2.json(), {"Authorization": f"Bearer {r2.json()['token']}"}
+
+
+mail_addr = f"  Check-{tag}@Example.com "
+session, auth_h = sign_in(mail_addr)
+assert session["created"] is True and session["user"]["email"] == f"check-{tag}@example.com"
+assert api.get("/me", headers=auth_h).json() == session["user"]
+assert api.get("/me").status_code == 401 and api.get("/me", headers={"Authorization": "Bearer nope"}).status_code == 401
+
+# rate limit: right after a code, the next request for the same address is 429 (case and spaces do not matter)
+assert api.post("/auth/request-code", json={"email": f"CHECK-{tag}@example.com"}).status_code == 429
+assert api.post("/auth/request-code", json={"email": "not-an-email"}).status_code == 422
+if not db.use_postgres():  # hourly limit: backdate the stored codes, five in the last hour block a sixth
+    from datetime import timedelta
+
+    e = f"hour-{tag}@example.com"
+    for _ in range(5):
+        assert db.issue_code(e, "x", min_gap_s=0)
+        for c in db._codes:
+            if c["email"] == e:
+                c["created_at"] -= timedelta(minutes=5)
+    assert api.post("/auth/request-code", json={"email": e}).status_code == 429
+
+# parallel request-code for one address: exactly one gets through, the rest are limited
+from concurrent.futures import ThreadPoolExecutor
+
+pe = f"parallel-{tag}@example.com"
+with ThreadPoolExecutor(8) as pool:
+    codes = sorted(pool.map(lambda _: api.post("/auth/request-code", json={"email": pe}).status_code, range(8)))
+assert codes == [200] + [429] * 7, codes
+
+# mail config: with a key never a dev_code (and no real mail is sent here); production without key or test mode -> 503
+import mail
+
+os.environ["RESEND_API_KEY"] = "re_test"
+sent = []
+mail.send_code = lambda email, code, language="de": sent.append(email)
+mk = f"key-{tag}@example.com"
+r = api.post("/auth/request-code", json={"email": mk})
+assert r.status_code == 204 and sent == [mk], (r.status_code, sent)
+del os.environ["RESEND_API_KEY"]
+os.environ["AUTH_DEV_CODES"] = "0"
+os.environ["VERCEL_ENV"] = "production"
+r = api.post("/auth/request-code", json={"email": f"prod-{tag}@example.com"})
+assert r.status_code == 503 and r.json() == {"detail": "mail is not configured"}
+os.environ.pop("VERCEL_ENV")
+r = api.post("/auth/request-code", json={"email": f"local-{tag}@example.com"})
+assert r.status_code == 204  # local without test mode: code only in the log
+os.environ["AUTH_DEV_CODES"] = "1"
+
+# wrong code: 401, counts attempts; after 5 failures even the right code is rejected; a used code cannot be replayed
+e2 = f"wrong-{tag}@example.com"
+dev = api.post("/auth/request-code", json={"email": e2}).json()["dev_code"]
+bad = "000000" if dev != "000000" else "111111"
+for _ in range(5):
+    assert api.post("/auth/verify", json={"email": e2, "code": bad}).status_code == 401
+assert api.post("/auth/verify", json={"email": e2, "code": dev}).status_code == 401
+assert api.post("/auth/verify", json={"email": f"nobody-{tag}@example.com", "code": "123456"}).status_code == 401
+r = api.post("/auth/verify", json={"email": mail_addr, "code": "123456"})
+assert r.status_code == 401  # the first code was already used up
+
+# second sign-in of the same account: created false, own token
+e3 = f"again-{tag}@example.com"
+s1, _h = sign_in(e3)
+assert s1["created"] is True
+
+# sync: empty, first PUT needs base null, stale base -> 409 with current stand, type and size checks
+d = api.get("/me/data", headers=auth_h).json()
+assert d == {"people": [], "profile": None, "updated_at": None}
+people = [{"id": "p1", "name": "Mama", "updatedAt": 1}]
+r = api.put("/me/data", headers=auth_h, json={"people": people, "profile": {"name": "Ich"}, "base_updated_at": None})
+assert r.status_code == 200, r.text
+v1 = r.json()["updated_at"]
+assert api.get("/me/data", headers=auth_h).json() == {"people": people, "profile": {"name": "Ich"}, "updated_at": v1}
+r = api.put("/me/data", headers=auth_h, json={"people": [], "profile": None, "base_updated_at": None})
+assert r.status_code == 409 and r.json()["people"] == people and r.json()["updated_at"] == v1 and r.json()["detail"]
+r = api.put("/me/data", headers=auth_h, json={"people": [], "profile": None, "base_updated_at": "2020-01-01T00:00:00+00:00"})
+assert r.status_code == 409
+r = api.put("/me/data", headers=auth_h, json={"people": people + [{"id": "p2"}], "profile": None, "base_updated_at": v1})
+assert r.status_code == 200 and r.json()["updated_at"] != v1
+assert api.get("/me/data", headers=auth_h).json()["profile"] is None and len(api.get("/me/data", headers=auth_h).json()["people"]) == 2
+assert api.put("/me/data", headers=auth_h, json={"people": {}, "profile": None, "base_updated_at": None}).status_code == 422
+assert api.put("/me/data", headers=auth_h, json={"people": [], "profile": [], "base_updated_at": None}).status_code == 422
+assert api.put("/me/data", headers=auth_h, json={"people": [], "profile": None, "base_updated_at": "gestern"}).status_code == 422
+assert api.put("/me/data", headers=auth_h, json={"people": [], "profile": None, "base_updated_at": "2020-01-01T00:00:00"}).status_code == 422  # no zone
+big = {"people": [{"x": "a" * 1000}] * 2200, "profile": None, "base_updated_at": None}
+assert api.put("/me/data", headers=auth_h, content=json.dumps(big)).status_code == 413
+r = api.put("/me/data", headers={**auth_h, "content-length": str(3 * 1024 * 1024)}, content=b"{}")  # declared size alone is enough
+assert r.status_code == 413, r.status_code
+assert api.put("/me/data", json={"people": [], "profile": None}).status_code == 401
+
+# /recommend with a token stores user_id; an invalid token is 401; without token still works
+stub(json.dumps(simple))
+r = api.post("/recommend", headers=auth_h, json=example("simple.request.json"))
+assert r.status_code == 200 and db.result_user_id(r.json()["id"]) == session["user"]["id"]
+owned = r.json()["id"]
+assert api.post("/recommend", headers={"Authorization": "Bearer nope"}, json=example("simple.request.json")).status_code == 401
+stub(json.dumps(simple))
+anon = api.post("/recommend", json=example("simple.request.json")).json()["id"]
+assert db.result_user_id(anon) is None and api.get(f"/results/{owned}").status_code == 200  # reading needs no token
+
+# logout kills only that token; delete removes account, sessions, data; results stay without owner
+_, other_h = sign_in(f"check-{tag}@example.com")  # second session for the same account
+assert api.post("/auth/logout", headers=auth_h).status_code == 204
+assert api.get("/me", headers=auth_h).status_code == 401 and api.get("/me", headers=other_h).status_code == 200
+assert api.delete("/me", headers=other_h).status_code == 204
+assert api.get("/me", headers=other_h).status_code == 401
+assert api.get(f"/results/{owned}").status_code == 200 and db.result_user_id(owned) is None
+_, new_h = sign_in(f"check-{tag}@example.com")  # same address registers fresh, with empty data
+assert api.get("/me/data", headers=new_h).json()["updated_at"] is None
+api.delete("/me", headers=new_h)
+api.delete("/me", headers=_h)
+print("accounts ok: code sign-in, rate limit, attempts, sessions, sync 409/413/422, delete", "(postgres)" if db.use_postgres() else "(memory)")
 print("ALL CHECKS PASSED")

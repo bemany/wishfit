@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 import amazon
+import auth
 import idealo
 import storage
 
@@ -26,6 +27,7 @@ load_dotenv(HERE / ".env")
 
 app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth.router)
 
 
 @app.middleware("http")
@@ -528,7 +530,7 @@ def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict
 
 
 @app.post("/recommend")
-def recommend(req: RecommendRequest) -> RecommendResponse:
+def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_user)) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
     trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
     req = with_photo(req, trace)  # before the conversation, so the named product is part of the stored message
@@ -561,7 +563,7 @@ def recommend(req: RecommendRequest) -> RecommendResponse:
         trace_url=f"/trace/{result_id}",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
-    storage.save(result_id, response.model_dump(), trace)
+    storage.save(result_id, response.model_dump(), trace, user["id"] if user else None)
     return response
 
 

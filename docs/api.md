@@ -88,13 +88,13 @@ are trimmed and lower-cased.
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
-| POST | `/auth/request-code` | no | `{email, language?}` (`"de"` default, `"en"`) | 204. Test mode (`AUTH_DEV_CODES=1`, no mail key): 200 `{dev_code}`. 422 invalid address, 429 more than once per 60 s or 5 per hour |
+| POST | `/auth/request-code` | no | `{email, language?}` (`"de"` default, `"en"`) | 204. Test mode (`AUTH_DEV_CODES=1`, no mail key): 200 `{dev_code}`. 422 invalid address, 429 more than once per 60 s or 5 per hour, 502 mail could not be sent, 503 mail not configured (production without mail key and without test mode) |
 | POST | `/auth/verify` | no | `{email, code}` | 200 `{token, user: {id, email, created_at}, created}`; 401 wrong, expired or used code (5 attempts per code) |
 | POST | `/auth/logout` | yes | – | 204, the token is invalid afterwards |
 | GET | `/me` | yes | – | 200 `{id, email, created_at}` |
 | DELETE | `/me` | yes | – | 204, deletes account, sessions and synced data; results lose their owner |
 | GET | `/me/data` | yes | – | 200 `{people, profile, updated_at}`; empty account: `{people: [], profile: null, updated_at: null}` |
-| PUT | `/me/data` | yes | `{people, profile, base_updated_at}` | 200 `{updated_at}`; 409 `{detail, people, profile, updated_at}` when `base_updated_at` is not the stored one (use `null` for an empty account); 413 over 2 MB |
+| PUT | `/me/data` | yes | `{people, profile, base_updated_at}` | 200 `{updated_at}`; 409 `{detail, people, profile, updated_at}` when `base_updated_at` is not the stored one (use `null` for an empty account); 413 over 2 MB; 422 wrong types or a `base_updated_at` without time zone. Send `updated_at` back unchanged as `base_updated_at` (do not parse it) |
 
 - Codes: 6 digits, valid 10 minutes, a new request replaces the open code. Tokens are valid 90 days.
 - `people` is the app's list of persons (each with `id` and `updatedAt` in ms), `profile` the app's own
