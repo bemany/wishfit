@@ -576,7 +576,7 @@ export function Thread({
   const snap = async (from: 'camera' | 'library') => {
     if (from === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) return setMicNote('The camera is switched off for Wishfit in Settings.');
     const options = { mediaTypes: ['images' as const], quality: 0.4, base64: true };
-    const picked = await (from === 'camera' ? ImagePicker.launchCameraAsync(options) : ImagePicker.launchImageLibraryAsync(options)).catch(() => null);
+    const picked = await (from === 'camera' ? ImagePicker.launchCameraAsync(options) : ImagePicker.launchImageLibraryAsync(options)).catch((e) => void setMicNote(`The photo did not open: ${e?.message ?? e}`));
     const asset = picked?.assets?.[0];
     if (!asset?.base64) return;
     stopMic();
@@ -586,8 +586,9 @@ export function Thread({
   };
   const askPhoto = () =>
     Alert.alert('Snap a product', 'I recognise it and look it up on idealo.', [
-      { text: 'Take a photo', onPress: () => snap('camera') },
-      { text: 'Choose from library', onPress: () => snap('library') },
+      // iOS cannot present the picker while the alert is still closing
+      { text: 'Take a photo', onPress: () => setTimeout(() => snap('camera'), 500) },
+      { text: 'Choose from library', onPress: () => setTimeout(() => snap('library'), 500) },
       { text: 'Cancel', style: 'cancel' },
     ]);
 
