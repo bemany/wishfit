@@ -24,6 +24,7 @@
 - [ ] 4.2 Simulator-Build (erledigt), Test auf zwei Simulatoren (offen, läuft auf dem xcode-builder)
 - [ ] 4.3 EAS Update und lokaler Build für TestFlight
 - [x] 4.4 Deep Link lädt auch bei laufender App neu; Buttons skalieren mit Dynamic Type
+- [x] 4.5 Oberfläche auf HeroUI Native (Uniwind) umgestellt, Markenname als Konstante
 
 ## 5. Abgabe
 
