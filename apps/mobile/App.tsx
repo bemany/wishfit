@@ -8,7 +8,7 @@ import { InstrumentSans_700Bold } from '@expo-google-fonts/instrument-sans/700Bo
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { Linking, PanResponder, View } from 'react-native';
+import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { idFromUrl, loadPeople, loadResult, recommend, savePeople, type Person, type Result } from './src/api';
@@ -31,17 +31,23 @@ export default function App() {
   );
 }
 
-// Swipe from the left edge to the right = the screen's back button.
-// ponytail: a 22pt edge strip with PanResponder, no gesture library; the strip only reacts to horizontal drags
-function EdgeBack({ onBack }: { onBack: () => void }) {
+const WIDTH = Dimensions.get('window').width;
+
+// Swipe from the left edge to the right = the screen's back button. The screen follows the finger and
+// slides out, or springs back when released early.
+// ponytail: a 22pt edge strip with PanResponder and Animated, no navigation library, so the white ground shows underneath
+function EdgeBack({ x, onBack }: { x: Animated.Value; onBack: () => void }) {
   const back = useRef(onBack);
   back.current = onBack;
   const pan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) => g.dx > 12 && Math.abs(g.dy) < 18,
+      onPanResponderMove: (_e, g) => x.setValue(Math.max(0, g.dx)),
       onPanResponderRelease: (_e, g) => {
-        if (g.dx > 60 && Math.abs(g.dy) < 80) back.current();
+        if (g.dx > WIDTH / 3 || g.vx > 0.6) back.current();
+        else Animated.spring(x, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
       },
+      onPanResponderTerminate: () => Animated.spring(x, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(),
     }),
   ).current;
   return <View {...pan.panHandlers} accessible={false} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 22 }} />;
@@ -96,22 +102,40 @@ function Root() {
   }, []);
 
   const person = 'id' in view ? (people.find((p) => p.id === view.id) ?? null) : null;
-  // The same target as each screen's back button
-  const goBack = () =>
-    setView(
-      view.name === 'edit' ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' },
-    );
+  // Screen transitions: forward slides in from the right, back slides out to the right (button and swipe alike)
+  const x = useRef(new Animated.Value(0)).current;
+  const leaving = useRef(false);
+  const viewKey = view.name + ('id' in view ? (view.id ?? '') : '');
+  useEffect(() => {
+    if (leaving.current) {
+      leaving.current = false;
+      return;
+    }
+    if (view.name === 'people') return;
+    x.setValue(WIDTH);
+    Animated.timing(x, { toValue: 0, duration: 220, useNativeDriver: true }).start();
+  }, [viewKey]);
+  const goBack = () => {
+    const target: View_ =
+      view.name === 'edit' ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' };
+    Animated.timing(x, { toValue: WIDTH, duration: 200, useNativeDriver: true }).start(() => {
+      leaving.current = true;
+      setView(target);
+      x.setValue(0);
+    });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
       <StatusBar style="dark" />
+      <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
       {view.name === 'add' ? (
-        <AddPerson onBack={() => setView({ name: 'people' })} onDone={add} />
+        <AddPerson onBack={goBack} onDone={add} />
       ) : view.name === 'edit' && person ? (
         <AddPerson
           key={`edit-${person.id}`}
           initial={person}
-          onBack={() => setView({ name: 'thread', id: person.id })}
+          onBack={goBack}
           onDone={(fields) => {
             update(person.id, (p) => ({ ...p, ...fields }));
             setView({ name: 'thread', id: person.id });
@@ -129,7 +153,7 @@ function Root() {
           person={person}
           busy={busyId === person.id}
           error={error?.id === person.id ? error.text : null}
-          onBack={() => setView({ name: 'people' })}
+          onBack={goBack}
           onSend={(text) => send(person, text)}
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
           onEdit={() => setView({ name: 'edit', id: person.id })}
@@ -139,12 +163,13 @@ function Root() {
           // A deep-linked result belongs to whoever has it in their thread, if anyone
           person={person ?? people.find((p) => p.messages.some((m) => m.role === 'agent' && m.result.id === view.result.id)) ?? null}
           result={view.result}
-          onBack={() => setView(view.id ? { name: 'thread', id: view.id } : { name: 'people' })}
+          onBack={goBack}
         />
       ) : (
         <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} />
       )}
-      {view.name !== 'people' && <EdgeBack onBack={goBack} />}
+      </Animated.View>
+      {view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
     </View>
   );
 }
