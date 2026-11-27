@@ -33,7 +33,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="bg-background font-sans text-foreground">
         <div className="mx-auto w-full max-w-5xl px-4 pb-16 pt-5">
-          <Link href="/" className="text-lg font-semibold tracking-tight">
+          <Link href="/" className="inline-flex items-center gap-2.5 text-lg font-semibold tracking-tight">
+            {/* The app icon; app/icon.png is also the favicon */}
+            <img src="/icon.png" alt="" width={32} height={32} className="rounded-lg" />
             {BRAND}
           </Link>
           {/* Pages read URL data on the client, so they render inside a Suspense boundary. */}
