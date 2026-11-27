@@ -14,6 +14,8 @@ import main
 
 EXAMPLES = Path(__file__).parent / "examples"
 os.environ.pop("DATABASE_URL", None)  # always in-memory here
+for _k in ("IDEALO_MCP_URL", "IDEALO_CLIENT_ID", "LLM_BASE_URL"):
+    os.environ[_k] = ""  # never call the real idealo MCP or a real model from the self-check
 os.environ["LLM_MODEL"] = "stub-model"
 
 
@@ -75,6 +77,28 @@ assert body.uncertainty.reasons and body.uncertainty.question
 trace = api.get(body.trace_url).json()
 assert len(trace["model_calls"]) == 2 and len(trace["idealo_calls"]) == 2
 print("chaotic ok:", body.status, "-", body.uncertainty.question)
+
+# chat case: free-form input -> understand step, then decide step, both in the trace
+chat = example("sample.chat.response.json")
+stub(json.dumps(chat["understood"]), json.dumps({k: chat[k] for k in ("status", "top", "alternatives", "uncertainty")}))
+r = api.post("/recommend", json=example("chat.request.json"))
+assert r.status_code == 200, r.text
+body = main.RecommendResponse.model_validate(r.json())
+assert body.status == "recommendation" and body.understood.candidates and body.top.total_eur == 48.89
+trace = api.get(body.trace_url).json()
+assert [c["step"] for c in trace["model_calls"]] == ["understand", "decide"]
+assert "Kopfhörer fallen" in trace["model_calls"][0]["input"][1]["content"]  # raw input reached step 1
+assert "Laufwerk" in trace["model_calls"][1]["input"][1]["content"]  # snapshot data reached step 2
+print("chat    ok:", body.status, body.top.product_name)
+
+# free input without idealo data: ideas only, one model call, no invented prices
+stub(json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"input_text": "Sie läuft gern und mag Kaffee.", "budget_eur": 40, "occasion": "Geburtstag"})
+assert r.status_code == 200, r.text
+body = main.RecommendResponse.model_validate(r.json())
+assert body.status == "ideas_only" and body.top is None and body.understood.candidates and body.uncertainty.reasons
+assert len(api.get(body.trace_url).json()["model_calls"]) == 1
+print("ideas   ok:", body.status, [c.idea for c in body.understood.candidates][:2])
 
 # failure paths: all must be a clean {"detail": str}
 stub("nope", "still nope")

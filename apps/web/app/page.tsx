@@ -1,262 +1,257 @@
 "use client";
 
-import {
-  Alert,
-  Button,
-  Card,
-  Chip,
-  Description,
-  Form,
-  Input,
-  Label,
-  NumberField,
-  TextArea,
-  TextField,
-} from "@heroui/react";
-import { Stepper } from "@heroui-pro/react/stepper";
+import { Alert, Button, Card, Chip, Description, Form, Input, Label, NumberField, TextArea, TextField } from "@heroui/react";
+import { ChatAttachment, ChatAttachmentInput } from "@heroui-pro/react/chat-attachment";
+import { PromptSuggestion } from "@heroui-pro/react/prompt-suggestion";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { demoRequests, recommend } from "@/lib/api";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { demoRequests, recommend, type RecommendRequest } from "@/lib/api";
 import { BRAND } from "@/lib/brand";
-import { ButtonLink } from "./ui";
+import { savePerson, usePeople } from "@/lib/people";
 
-const STEPS = [
-  {
-    title: "Du erstellst einen Link",
-    text: "Name, Budget und Anlass genügen. Den fertigen Text schickst du per Messenger.",
-  },
-  {
-    title: "Die Person trägt Wünsche ein",
-    text: "Produktnamen oder einfach eine Beschreibung.",
-  },
-  {
-    title: "Du bekommst eine Empfehlung",
-    text: "Ein bestes Geschenk und Alternativen, jeweils mit Preis inklusive Versand und den Daten dahinter.",
-  },
+const MAX = 20_000;
+type Demo = keyof typeof demoRequests;
+
+const EXAMPLES: { demo: Demo; label: string }[] = [
+  { demo: "chat", label: "WhatsApp-Chat" },
+  { demo: "simple", label: "Wunschliste" },
+  { demo: "chaotic", label: "Ungenauer Wunsch" },
 ];
 
-const CASES = [
-  {
-    title: "Ist der Angebotspreis ein echter Deal?",
-    text: "Der aktuelle Preis wird mit dem Verlauf der letzten 90 Tage verglichen.",
-  },
-  {
-    title: "Wunsch über dem Budget?",
-    text: `Dann schlägt ${BRAND} ein gleichwertiges Produkt aus derselben Kategorie vor.`,
-  },
-  {
-    title: "Ausverkauft?",
-    text: "Du bekommst eine Alternative, die rechtzeitig lieferbar ist.",
-  },
-  {
-    title: "Zwei kleine Wünsche?",
-    text: `${BRAND} prüft, ob beide zusammen inklusive Versand ins Budget passen.`,
-  },
-];
+const STATUS = {
+  recommendation: { label: "Empfehlung", color: "success" },
+  needs_clarification: { label: "Rückfrage", color: "warning" },
+  ideas_only: { label: "Ideen", color: "default" },
+} as const;
 
-const h2 = "text-2xl font-semibold tracking-tight sm:text-3xl";
-const lead = "max-w-prose text-lg text-muted";
+// Web Speech API, not in TypeScript's DOM lib.
+type Recognition = {
+  lang: string;
+  continuous: boolean;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+};
+const speechCtor = () => {
+  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition;
+};
+const noSubscribe = () => () => {};
 
-export default function LandingPage() {
+export default function AssistantPage() {
   const router = useRouter();
-  const [share, setShare] = useState<{ name: string; link: string } | null>(null);
-  const [message, setMessage] = useState("");
-  const [copied, setCopied] = useState("");
-  const [demo, setDemo] = useState<"simple" | "chaotic" | null>(null);
+  const people = usePeople();
+  const canDictate = useSyncExternalStore(noSubscribe, () => !!speechCtor(), () => false);
+  const canShare = useSyncExternalStore(noSubscribe, () => "share" in navigator, () => false);
+
+  const [name, setName] = useState("");
+  const [budget, setBudget] = useState<number | undefined>();
+  const [occasion, setOccasion] = useState("");
+  const [text, setText] = useState("");
+  const [demo, setDemo] = useState<Demo | null>(null);
+  const [file, setFile] = useState<{ name: string; size: number } | null>(null);
+  const [notice, setNotice] = useState("");
+  const [listening, setListening] = useState(false);
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [copied, setCopied] = useState(false);
+  const recognition = useRef<Recognition | null>(null);
 
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const name = String(f.get("name")).trim();
-    const occasion = String(f.get("occasion")).trim();
-    const params = new URLSearchParams({ name, budget: String(f.get("budget")), occasion });
-    const link = `${window.location.origin}/wish?${params}`;
-    setShare({ name, link });
-    setMessage(
-      `Hallo ${name}, ich möchte dir etwas schenken, das du dir wirklich wünschst (Anlass: ${occasion}). Trag hier kurz ein paar Wünsche ein, welcher es wird, bleibt eine Überraschung: ${link}`,
-    );
-    setCopied("");
+  const controlsReady = !!name.trim() && !!budget && !!occasion.trim();
+
+  function editText(value: string) {
+    setText(value);
+    setDemo(null);
   }
 
-  async function copy(what: "link" | "text") {
-    await navigator.clipboard.writeText(what === "link" ? share!.link : message);
-    setCopied(what);
-  }
-
-  async function runDemo(which: "simple" | "chaotic") {
+  function pickExample(which: Demo) {
+    const req = demoRequests[which];
+    setName(req.recipient_name ?? "");
+    setBudget(req.budget_eur);
+    setOccasion(req.occasion);
+    setText(req.input_text ?? (req.wishes ?? []).join("\n"));
     setDemo(which);
+    setFile(null);
+    setNotice("");
+  }
+
+  function attach(files: File[]) {
+    const f = files[0];
+    if (!f) return;
+    if (!f.type.startsWith("text/") && !f.name.toLowerCase().endsWith(".txt")) {
+      setNotice("Bitte eine Textdatei (.txt) anhängen, zum Beispiel einen WhatsApp-Export.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result);
+      editText(content.slice(0, MAX));
+      setFile({ name: f.name, size: f.size });
+      setNotice(
+        content.length > MAX
+          ? `Die Datei ist länger als ${MAX.toLocaleString("de-DE")} Zeichen und wurde gekürzt.`
+          : "",
+      );
+    };
+    reader.onerror = () => setNotice("Die Datei konnte nicht gelesen werden.");
+    reader.readAsText(f);
+  }
+
+  function toggleDictation() {
+    if (listening) return recognition.current?.stop();
+    const Ctor = speechCtor();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = "de-DE";
+    rec.continuous = true;
+    rec.onresult = (e) => {
+      let said = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) said += e.results[i][0].transcript;
+      setText((t) => (t && !/\s$/.test(t) ? `${t} ${said.trim()}` : t + said.trim()).slice(0, MAX));
+      setDemo(null);
+    };
+    rec.onend = () => setListening(false);
+    recognition.current = rec;
+    rec.start();
+    setListening(true);
+  }
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!text.trim() || !budget) return;
+    recognition.current?.stop();
+    setPending(true);
     setError("");
+    const req: RecommendRequest = {
+      recipient_name: name.trim(),
+      occasion: occasion.trim(),
+      budget_eur: budget,
+      input_text: text,
+    };
+    if (demo) {
+      // The stored idealo snapshot belongs to the example: keep its wishes and preferences.
+      const { wishes, preferences } = demoRequests[demo];
+      Object.assign(req, { demo_case: demo, preferences }, wishes && { wishes });
+    }
     try {
-      const result = await recommend(demoRequests[which]);
+      const result = await recommend(req);
+      savePerson({
+        name: req.recipient_name!,
+        occasion: req.occasion,
+        budget_eur: req.budget_eur,
+        id: result.id,
+        status: result.status,
+        created_at: result.created_at,
+        top: result.top?.product_name ?? null,
+      });
       router.push(`/result/${result.id}`);
     } catch (err) {
       setError((err as Error).message);
-      setDemo(null);
+      setPending(false);
     }
   }
 
-  const demoButton = (which: "simple" | "chaotic", label: string) => (
-    <Button
-      size="sm"
-      variant="outline"
-      isDisabled={!!demo}
-      isPending={demo === which}
-      onPress={() => runDemo(which)}
-    >
-      {demo === which ? "Agent arbeitet …" : label}
-    </Button>
-  );
+  function createLink() {
+    const params = new URLSearchParams({ name: name.trim(), budget: String(budget), occasion: occasion.trim() });
+    const link = `${window.location.origin}/wish?${params}`;
+    setMessage(
+      `Hallo ${name.trim()}, ich möchte dir etwas schenken, das du dir wirklich wünschst (Anlass: ${occasion.trim()}). Trag hier kurz ein paar Wünsche ein, welcher es wird, bleibt eine Überraschung: ${link}`,
+    );
+    setCopied(false);
+  }
 
   return (
-    <div className="flex flex-col gap-16 sm:gap-24">
-      <header className="grid items-start gap-10 pt-4 md:grid-cols-[1fr_400px] md:pt-10">
-        <div className="flex flex-col gap-6">
-          <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-balance sm:text-6xl">
-            Gut schenken, ohne zu raten.
-          </h1>
-          <p className={lead}>
-            Du nennst Budget und Anlass. Die Person trägt ihre Wünsche ein. {BRAND} prüft Preis, Preisverlauf und
-            Verfügbarkeit bei idealo und empfiehlt das beste Geschenk, mit Beleg.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Chip>Preisverlauf 90 Tage</Chip>
-            <Chip>Preis inkl. Versand</Chip>
-            <Chip>Verfügbarkeit je Händler</Chip>
-          </div>
-        </div>
-
-        <div id="start" className="flex scroll-mt-6 flex-col gap-4">
-          <Card>
-            <Card.Header>
-              <Card.Title className="text-xl">Wen möchtest du beschenken?</Card.Title>
-              <Card.Description>Du bekommst einen Link, den du der Person schickst.</Card.Description>
-            </Card.Header>
-            <Form onSubmit={onSubmit}>
-              <Card.Content className="flex flex-col gap-4">
-                <TextField fullWidth isRequired name="name" variant="secondary">
-                  <Label>Name</Label>
-                  <Input maxLength={60} placeholder="z. B. Lena" />
-                </TextField>
-                <div className="grid grid-cols-2 gap-3">
-                  <NumberField fullWidth isRequired minValue={1} name="budget" variant="secondary">
-                    <Label>Budget in Euro</Label>
-                    <NumberField.Group>
-                      <NumberField.Input className="num w-full" inputMode="decimal" placeholder="50" />
-                    </NumberField.Group>
-                  </NumberField>
-                  <TextField fullWidth isRequired name="occasion" variant="secondary">
-                    <Label>Anlass</Label>
-                    <Input list="occasions" maxLength={60} placeholder="z. B. Geburtstag" />
-                  </TextField>
-                  <datalist id="occasions">
-                    <option value="Geburtstag" />
-                    <option value="Weihnachten" />
-                    <option value="Wichteln" />
-                    <option value="Hochzeit" />
-                  </datalist>
-                </div>
-                <p className="text-sm text-muted">Das Budget zählt inklusive Versand.</p>
-              </Card.Content>
-              <Card.Footer className="mt-4 flex flex-col gap-2">
-                <Button fullWidth type="submit">
-                  Link erstellen
-                </Button>
-                <p className="text-center text-sm text-muted">Ohne Anmeldung.</p>
-              </Card.Footer>
-            </Form>
-          </Card>
-
-          {share && (
-            <Card aria-live="polite">
-              <Card.Header>
-                <Chip className="mb-2 self-start" color="success" variant="soft">
-                  Link ist fertig
-                </Chip>
-                <Card.Title className="text-xl">Schick das an {share.name}</Card.Title>
-              </Card.Header>
-              <Card.Content className="flex flex-col gap-4">
-                <TextField fullWidth variant="secondary" value={message} onChange={setMessage}>
-                  <Label>Nachricht</Label>
-                  <TextArea rows={6} />
-                  <Description>Du kannst den Text vor dem Senden anpassen.</Description>
-                </TextField>
-                <a className="num break-all text-sm text-accent underline" href={share.link}>
-                  {share.link}
-                </a>
-              </Card.Content>
-              <Card.Footer className="mt-4 flex flex-wrap gap-2">
-                <Button onPress={() => copy("text")}>{copied === "text" ? "Kopiert" : "Text kopieren"}</Button>
-                <Button variant="outline" onPress={() => copy("link")}>
-                  {copied === "link" ? "Kopiert" : "Nur Link kopieren"}
-                </Button>
-                {"share" in navigator && (
-                  <Button variant="ghost" onPress={() => navigator.share({ text: message }).catch(() => {})}>
-                    Teilen …
-                  </Button>
-                )}
-              </Card.Footer>
-            </Card>
-          )}
-        </div>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-10">
+      <header className="flex flex-col gap-3 pt-2 sm:pt-6">
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight text-balance sm:text-4xl">
+          Gib mir irgendetwas über die Person. Ich finde das beste Geschenk in deinem Budget.
+        </h1>
       </header>
 
-      <section className="flex flex-col gap-8">
-        <h2 className={h2}>So funktioniert es</h2>
-        <Stepper
-          currentStep={-1}
-          orientation="vertical"
-          size="lg"
-          style={
-            {
-              "--stepper-inactive-border": "var(--color-foreground)",
-              "--stepper-inactive-fg": "var(--color-foreground)",
-            } as React.CSSProperties
-          }
-        >
-          {STEPS.map((s, i) => (
-            <Stepper.Step key={s.title}>
-              <Stepper.Indicator />
-              <Stepper.Content>
-                <Stepper.Title className="text-foreground">{s.title}</Stepper.Title>
-                <Stepper.Description className="text-sm text-muted">{s.text}</Stepper.Description>
-              </Stepper.Content>
-              {i < STEPS.length - 1 && <Stepper.Separator />}
-            </Stepper.Step>
-          ))}
-        </Stepper>
-      </section>
+      <Form className="flex flex-col gap-4" onSubmit={onSubmit}>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <TextField fullWidth isRequired name="name" value={name} onChange={setName}>
+            <Label>Für wen?</Label>
+            <Input maxLength={60} placeholder="z. B. Lena" />
+          </TextField>
+          <NumberField fullWidth isRequired minValue={1} name="budget" value={budget ?? NaN} onChange={(v) => setBudget(Number.isNaN(v) ? undefined : v)}>
+            <Label>Budget in Euro</Label>
+            <NumberField.Group>
+              <NumberField.Input className="num w-full" inputMode="decimal" placeholder="50" />
+            </NumberField.Group>
+          </NumberField>
+          <TextField fullWidth isRequired name="occasion" value={occasion} onChange={setOccasion}>
+            <Label>Anlass</Label>
+            <Input list="occasions" maxLength={60} placeholder="z. B. Geburtstag" />
+          </TextField>
+          <datalist id="occasions">
+            <option value="Geburtstag" />
+            <option value="Weihnachten" />
+            <option value="Wichteln" />
+            <option value="Hochzeit" />
+          </datalist>
+        </div>
 
-      <section className="grid gap-8 md:grid-cols-2 md:gap-12">
-        <div className="flex flex-col gap-4">
-          <h2 className={h2}>Jede Empfehlung zeigt ihren Beleg</h2>
-          <p className={lead}>
-            {BRAND} entscheidet anhand der Daten von idealo und sagt dazu, welche es waren.
+        <ChatAttachmentInput accept=".txt,text/plain" disabled={pending} onFilesSelected={attach}>
+          <ChatAttachmentInput.Dropzone
+            render={(dropzoneProps) => (
+              <div
+                {...dropzoneProps}
+                className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-3 shadow-surface focus-within:border-accent data-[dragging]:border-dashed data-[dragging]:border-accent"
+              >
+                <TextField fullWidth isRequired isDisabled={pending} name="input_text" value={text} onChange={editText}>
+                  <Label className="px-1 text-base font-semibold">Was weißt du über die Person?</Label>
+                  <TextArea
+                    className="max-h-80 min-h-36 resize-none border-0 bg-transparent px-1 shadow-none"
+                    maxLength={MAX}
+                    placeholder="Wunschliste, WhatsApp-Chat, Notizen, Hobbys – einfach einfügen, Datei hineinziehen oder diktieren."
+                    rows={6}
+                    variant="secondary"
+                  />
+                </TextField>
+                {file && <ChatAttachment className="self-start" mimeType="text/plain" name={file.name} size={file.size} />}
+                <div className="flex flex-wrap items-center gap-2">
+                  <ChatAttachmentInput.Trigger
+                    render={(triggerProps) => (
+                      <Button {...triggerProps} size="sm" variant="outline">
+                        Textdatei anhängen
+                      </Button>
+                    )}
+                  />
+                  {canDictate && (
+                    <Button
+                      aria-pressed={listening}
+                      isDisabled={pending}
+                      size="sm"
+                      variant={listening ? "danger-soft" : "outline"}
+                      onPress={toggleDictation}
+                    >
+                      {listening ? "Diktat stoppen" : "Diktieren"}
+                    </Button>
+                  )}
+                  {text.length > MAX * 0.9 && (
+                    <span className="num text-xs text-muted" aria-live="polite">
+                      {text.length.toLocaleString("de-DE")} / {MAX.toLocaleString("de-DE")}
+                    </span>
+                  )}
+                  <Button className="ml-auto" isPending={pending} type="submit">
+                    {pending ? "Agent arbeitet …" : "Geschenk finden"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          />
+        </ChatAttachmentInput>
+
+        {notice && (
+          <p className="text-sm text-muted" role="status">
+            {notice}
           </p>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
-            Nur mal ansehen? {demoButton("simple", "Demo: einfach")}
-          </div>
-        </div>
-        <dl className="grid gap-5">
-          {CASES.map((c) => (
-            <div key={c.title}>
-              <dt className="font-medium">{c.title}</dt>
-              <dd className="text-muted">{c.text}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <h2 className={h2}>Wenn die Daten nicht reichen, fragt {BRAND} nach</h2>
-        <p className={lead}>
-          Ist ein Wunsch ungenau oder widersprechen sich die Preise, rät {BRAND} nicht. Du siehst, was unklar ist,
-          und welche Frage offen ist.
-        </p>
-        <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
-          Beispiel mit Rückfrage: {demoButton("chaotic", "Demo: chaotisch")}
-        </div>
-        {demo && <p className="text-sm text-muted">Das kann 10 bis 30 Sekunden dauern.</p>}
+        )}
+        {pending && <p className="text-sm text-muted">Das kann 10 bis 30 Sekunden dauern.</p>}
         {error && (
           <Alert status="danger">
             <Alert.Indicator />
@@ -265,18 +260,97 @@ export default function LandingPage() {
             </Alert.Content>
           </Alert>
         )}
-      </section>
 
-      <section className="flex flex-col items-start gap-6">
-        <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-          Wem schenkst du als Nächstes etwas?
-        </h2>
-        <ButtonLink href="#start">Link erstellen</ButtonLink>
-      </section>
+        <PromptSuggestion>
+          <PromptSuggestion.Header>
+            <PromptSuggestion.Description>Oder starte mit einem Beispiel</PromptSuggestion.Description>
+          </PromptSuggestion.Header>
+          <PromptSuggestion.Items>
+            {EXAMPLES.map((ex) => (
+              <PromptSuggestion.Item
+                key={ex.demo}
+                aria-pressed={demo === ex.demo}
+                isDisabled={pending}
+                showEndIcon={false}
+                onPress={() => pickExample(ex.demo)}
+              >
+                {ex.label}
+              </PromptSuggestion.Item>
+            ))}
+          </PromptSuggestion.Items>
+        </PromptSuggestion>
+      </Form>
+
+      {people.length > 0 && (
+        <section className="flex flex-col gap-4">
+          <h2 className="text-xl font-semibold tracking-tight">Deine Personen</h2>
+          {people.map(([person, entries]) => (
+            <div key={person} className="flex flex-col gap-1">
+              <h3 className="font-medium">{person}</h3>
+              <ul className="flex flex-col">
+                {entries.map((entry) => (
+                  <li key={entry.id}>
+                    <Link
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-3 py-2 hover:bg-surface-secondary"
+                      href={`/result/${entry.id}`}
+                    >
+                      <Chip color={STATUS[entry.status]?.color} size="sm" variant="soft">
+                        {STATUS[entry.status]?.label ?? entry.status}
+                      </Chip>
+                      <span className="min-w-0 flex-1 basis-40 truncate">{entry.top ?? "Noch keine Empfehlung"}</span>
+                      <span className="num text-sm text-muted">
+                        {entry.occasion} · {entry.budget_eur} € · {new Date(entry.created_at).toLocaleDateString("de-DE")}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <Card variant="secondary">
+        <Card.Header>
+          <Card.Title>Lieber die Person selbst fragen?</Card.Title>
+          <Card.Description>
+            Du bekommst einen Link, über den die Person ihre Wünsche einträgt. Name, Budget und Anlass kommen von oben.
+          </Card.Description>
+        </Card.Header>
+        {message && (
+          <Card.Content>
+            <TextField fullWidth value={message} onChange={setMessage}>
+              <Label>Nachricht</Label>
+              <TextArea rows={5} />
+              <Description>Du kannst den Text vor dem Senden anpassen.</Description>
+            </TextField>
+          </Card.Content>
+        )}
+        <Card.Footer className="mt-4 flex flex-wrap gap-2">
+          <Button isDisabled={!controlsReady} variant={message ? "outline" : "secondary"} onPress={createLink}>
+            {message ? "Link neu erstellen" : "Link erstellen"}
+          </Button>
+          {message && (
+            <Button
+              onPress={async () => {
+                await navigator.clipboard.writeText(message);
+                setCopied(true);
+              }}
+            >
+              {copied ? "Kopiert" : "Text kopieren"}
+            </Button>
+          )}
+          {message && canShare && (
+            <Button variant="ghost" onPress={() => navigator.share({ text: message }).catch(() => {})}>
+              Teilen …
+            </Button>
+          )}
+        </Card.Footer>
+      </Card>
 
       <footer className="text-sm text-muted">
-        Produkt- und Preisdaten kommen von idealo. Die Entscheidung trifft ein Sprachmodell in einem Live-Aufruf;
-        jeder Aufruf ist im Trace einsehbar.
+        {BRAND} nutzt Produkt- und Preisdaten von idealo. Die Entscheidung trifft ein Sprachmodell in einem Live-Aufruf; jeder
+        Aufruf ist im Trace einsehbar.
       </footer>
     </div>
   );

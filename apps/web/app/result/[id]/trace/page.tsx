@@ -46,6 +46,11 @@ export default function TracePage() {
           {trace.model_calls.map((c, i) => (
             <Card key={i}>
               <Card.Header>
+                {c.step && (
+                  <Chip className="self-start" size="sm" variant="soft">
+                    Schritt: {c.step}
+                  </Chip>
+                )}
                 <Card.Title className="num">{c.model}</Card.Title>
                 <Card.Description className="num text-xs">
                   {c.duration_ms != null && `${c.duration_ms} ms`}
