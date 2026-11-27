@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -19,14 +19,18 @@ export const Body = ({ style, ...p }: TP) => <Text {...p} style={[s.body, style]
 export const Say = ({ style, ...p }: TP) => <Text {...p} style={[s.say, style]} />;
 export const Name = ({ style, ...p }: TP) => <Text {...p} style={[s.name, style]} />;
 
-export const Bubble = ({ children, note }: { children: string; note?: string }) => (
-  <View style={s.bubble}>
-    <Text style={[s.body, { color: '#fff' }]} numberOfLines={3}>
-      {children}
-    </Text>
-    {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{note}</Mono>}
-  </View>
-);
+// A long message (one with a `note`) is shortened; tapping it expands and collapses it
+export function Bubble({ children, note }: { children: string; note?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Pressable accessibilityRole={note ? 'button' : undefined} disabled={!note} onPress={() => setOpen((o) => !o)} style={s.bubble}>
+      <Text style={[s.body, { color: '#fff' }]} numberOfLines={note && open ? undefined : 3}>
+        {children}
+      </Text>
+      {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{open ? 'Tap to collapse' : `${note} · tap to expand`}</Mono>}
+    </Pressable>
+  );
+}
 
 // The hang tag: one per person and one per pick
 export function Tag({ color, onPress, style, children, label }: { color: string; onPress?: () => void; style?: StyleProp<ViewStyle>; children: ReactNode; label?: string }) {
@@ -88,7 +92,7 @@ export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; ti
 );
 
 // Outlined row: alternatives, steps, price breakdown
-export const Line = ({ color = C.mint, title, sub, right, last, onPress }: { color?: string; title: string; sub?: string; right?: string; last?: boolean; onPress?: () => void }) => (
+export const Line = ({ color = C.mint, title, sub, right, last, onPress }: { color?: string; title: string; sub?: string; right?: ReactNode; last?: boolean; onPress?: () => void }) => (
   <Pressable disabled={!onPress} onPress={onPress} style={[s.line, last && { borderBottomWidth: 2 }]}>
     <View style={[s.dot, { backgroundColor: color }]} />
     <View style={{ flex: 1 }}>
@@ -99,7 +103,7 @@ export const Line = ({ color = C.mint, title, sub, right, last, onPress }: { col
         </Text>
       )}
     </View>
-    {right && <Text style={s.lineTitle}>{right}</Text>}
+    {typeof right === 'string' ? <Text style={s.lineTitle}>{right}</Text> : right}
   </Pressable>
 );
 

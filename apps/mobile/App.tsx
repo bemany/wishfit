@@ -77,6 +77,11 @@ function Root() {
       const result = await recommend(person, text);
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
     } catch (e) {
+      // An unanswered message does not stay in the thread, only the error line does
+      update(person.id, (p) => {
+        const last = p.messages.at(-1);
+        return last?.role === 'user' && last.text === text ? { ...p, messages: p.messages.slice(0, -1) } : p;
+      });
       setError({ id: person.id, text: e instanceof Error ? e.message : 'Unknown error.' });
     } finally {
       setBusyId(null);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, KeyboardAvoidingView, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, KeyboardAvoidingView, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
@@ -229,18 +229,57 @@ export function MeScreen({ me, onChange, onBack }: { me: Me; onChange: (me: Me) 
 }
 
 const STEPS = ['Understanding', 'Searching idealo', 'Deciding'];
-// 4 Searching. No real progress from the backend: the steps simply appear one after another
-function Searching() {
+// 4 Searching. No real progress from the backend: the steps simply appear one after another.
+// While waiting, a small tag in the person's colour swings around its hole and the running step's dots bounce.
+function Searching({ color }: { color: string }) {
   const [step, setStep] = useState(0);
+  const swing = useRef(new Animated.Value(0)).current;
+  const dots = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const timer = setInterval(() => setStep((n) => Math.min(n + 1, STEPS.length - 1)), 6000);
-    return () => clearInterval(timer);
+    let loops: Animated.CompositeAnimation[] = [];
+    let gone = false;
+    // With reduced motion nothing starts: the tag hangs still and the dots rest
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((reduce) => {
+        if (gone || reduce) return;
+        const to = (toValue: number, duration: number) => Animated.timing(swing, { toValue, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true });
+        loops = [
+          // two calm swings, then a quick double wiggle; starts and ends at rest so the loop has no jump
+          Animated.loop(Animated.sequence([to(1, 600), to(-1, 1200), to(1, 1200), to(-1, 1200), to(0.5, 150), to(-0.5, 150), to(0.5, 150), to(0, 300)])),
+          Animated.loop(Animated.timing(dots, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true })),
+        ];
+        loops.forEach((l) => l.start());
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+      clearInterval(timer);
+      loops.forEach((l) => l.stop());
+    };
   }, []);
+  const rotate = swing.interpolate({ inputRange: [-1, 1], outputRange: ['-7deg', '7deg'] });
+  const bounce = (
+    <View accessibilityLabel="working" style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+      {[0, 1, 2].map((i) => (
+        <Animated.View
+          key={i}
+          style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.ink, transform: [{ translateY: dots.interpolate({ inputRange: [0, 0.05 + i * 0.2, 0.2 + i * 0.2, 0.35 + i * 0.2, 1], outputRange: [0, 0, -6, 0, 0] }) }] }}
+        />
+      ))}
+    </View>
+  );
   return (
     <View>
       <Say style={{ paddingBottom: 12 }}>On it. This takes about 20 seconds.</Say>
+      {/* the pivot is the hole, 30pt above the tag's centre */}
+      <Animated.View
+        style={{ alignSelf: 'flex-start', marginLeft: 10, marginBottom: 14, width: 60, height: 80, borderRadius: 14, borderWidth: 2, borderColor: C.ink, backgroundColor: color, transform: [{ translateY: -30 }, { rotate }, { translateY: 30 }] }}
+      >
+        <View style={[s.hole, { top: 6, width: 12, height: 12 }]} />
+      </Animated.View>
       {STEPS.slice(0, step + 1).map((label, i) => (
-        <Line key={label} title={label} color={i < step ? C.mint : C.lemon} right={i < step ? 'done' : '…'} last={i === step} />
+        <Line key={label} title={label} color={i < step ? C.mint : C.lemon} right={i < step ? 'done' : bounce} last={i === step} />
       ))}
     </View>
   );
@@ -395,7 +434,7 @@ export function Thread({
             </View>
           ),
         )}
-        {busy && <Searching />}
+        {busy && <Searching color={person.color} />}
         {error && !busy && <Say>That did not work. {error}</Say>}
       </ScrollView>
       <View style={[pad, { gap: 10, paddingTop: 10, paddingBottom: insets.bottom + 8, backgroundColor: C.paper }]}>
