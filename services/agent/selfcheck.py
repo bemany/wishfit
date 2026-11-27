@@ -198,11 +198,38 @@ if not db.use_postgres():  # hourly limit: backdate the stored codes, five in th
 
     e = f"hour-{tag}@example.com"
     for _ in range(5):
-        db.create_code(e, "x")
-    for c in db._codes:
-        if c["email"] == e:
-            c["created_at"] -= timedelta(minutes=5)
+        assert db.issue_code(e, "x", min_gap_s=0)
+        for c in db._codes:
+            if c["email"] == e:
+                c["created_at"] -= timedelta(minutes=5)
     assert api.post("/auth/request-code", json={"email": e}).status_code == 429
+
+# parallel request-code for one address: exactly one gets through, the rest are limited
+from concurrent.futures import ThreadPoolExecutor
+
+pe = f"parallel-{tag}@example.com"
+with ThreadPoolExecutor(8) as pool:
+    codes = sorted(pool.map(lambda _: api.post("/auth/request-code", json={"email": pe}).status_code, range(8)))
+assert codes == [200] + [429] * 7, codes
+
+# mail config: with a key never a dev_code (and no real mail is sent here); production without key or test mode -> 503
+import mail
+
+os.environ["RESEND_API_KEY"] = "re_test"
+sent = []
+mail.send_code = lambda email, code, language="de": sent.append(email)
+mk = f"key-{tag}@example.com"
+r = api.post("/auth/request-code", json={"email": mk})
+assert r.status_code == 204 and sent == [mk], (r.status_code, sent)
+del os.environ["RESEND_API_KEY"]
+os.environ["AUTH_DEV_CODES"] = "0"
+os.environ["VERCEL_ENV"] = "production"
+r = api.post("/auth/request-code", json={"email": f"prod-{tag}@example.com"})
+assert r.status_code == 503 and r.json() == {"detail": "mail is not configured"}
+os.environ.pop("VERCEL_ENV")
+r = api.post("/auth/request-code", json={"email": f"local-{tag}@example.com"})
+assert r.status_code == 204  # local without test mode: code only in the log
+os.environ["AUTH_DEV_CODES"] = "1"
 
 # wrong code: 401, counts attempts; after 5 failures even the right code is rejected; a used code cannot be replayed
 e2 = f"wrong-{tag}@example.com"
@@ -238,8 +265,11 @@ assert api.get("/me/data", headers=auth_h).json()["profile"] is None and len(api
 assert api.put("/me/data", headers=auth_h, json={"people": {}, "profile": None, "base_updated_at": None}).status_code == 422
 assert api.put("/me/data", headers=auth_h, json={"people": [], "profile": [], "base_updated_at": None}).status_code == 422
 assert api.put("/me/data", headers=auth_h, json={"people": [], "profile": None, "base_updated_at": "gestern"}).status_code == 422
+assert api.put("/me/data", headers=auth_h, json={"people": [], "profile": None, "base_updated_at": "2020-01-01T00:00:00"}).status_code == 422  # no zone
 big = {"people": [{"x": "a" * 1000}] * 2200, "profile": None, "base_updated_at": None}
 assert api.put("/me/data", headers=auth_h, content=json.dumps(big)).status_code == 413
+r = api.put("/me/data", headers={**auth_h, "content-length": str(3 * 1024 * 1024)}, content=b"{}")  # declared size alone is enough
+assert r.status_code == 413, r.status_code
 assert api.put("/me/data", json={"people": [], "profile": None}).status_code == 401
 
 # /recommend with a token stores user_id; an invalid token is 401; without token still works

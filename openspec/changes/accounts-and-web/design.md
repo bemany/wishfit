@@ -66,3 +66,5 @@ results(+ user_id uuid null)   -- beim Konto-Löschen auf null
 
 - Resend-Sending-Key von Esref (bis dahin Testmodus).
 - Löschen von Personen über Geräte hinweg (Tombstones) in einem Folgepaket.
+- Aufräumen abgelaufener Sitzungen und alter `auth_codes` (derzeit wachsen die Tabellen nur).
+- Rate-Limit je IP zusätzlich zum Limit je Adresse (derzeit nur je Adresse).

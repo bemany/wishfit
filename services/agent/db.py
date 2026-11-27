@@ -3,6 +3,7 @@
 Schema work runs once per process under an advisory lock, so parallel cold starts do not collide.
 """
 
+import itertools
 import os
 import threading
 import uuid
@@ -25,8 +26,13 @@ SCHEMA = [
     " created_at timestamptz not null default now(), expires_at timestamptz not null)",
     "create table if not exists user_data (user_id uuid primary key references users(id) on delete cascade,"
     " people jsonb not null default '[]', profile jsonb, updated_at timestamptz not null)",
-    "alter table results add column if not exists user_id uuid references users(id) on delete set null",
 ]
+# only run when the column is missing (an unconditional alter takes a lock on results at every cold start)
+RESULTS_USER_ID_CHECK = (
+    "select 1 from information_schema.columns where table_schema = current_schema()"
+    " and table_name = 'results' and column_name = 'user_id'"
+)
+RESULTS_USER_ID_ALTER = "alter table results add column user_id uuid references users(id) on delete set null"
 
 _migrated = False
 _migrate_lock = threading.Lock()
@@ -36,6 +42,7 @@ _mem_lock = threading.Lock()
 _results: dict[str, tuple[dict, dict, str | None]] = {}
 _users: dict[str, dict] = {}  # id -> row
 _codes: list[dict] = []
+_code_ids = itertools.count(1)
 _sessions: dict[str, dict] = {}
 _data: dict[str, dict] = {}
 
@@ -67,6 +74,8 @@ def migrate() -> None:
             conn.execute("select pg_advisory_xact_lock(%s)", (MIGRATION_LOCK,))
             for stmt in SCHEMA:
                 conn.execute(stmt)
+            if conn.execute(RESULTS_USER_ID_CHECK).fetchone() is None:
+                conn.execute(RESULTS_USER_ID_ALTER)
         _migrated = True
 
 
@@ -166,41 +175,43 @@ def delete_user(user_id: str) -> None:
 # --- auth codes ------------------------------------------------------------
 
 
-def rate_limited(email: str, min_gap_s: int = 60, per_hour: int = 5) -> bool:
+def issue_code(email: str, code_hash: str, ttl_s: int = 600, min_gap_s: int = 60, per_hour: int = 5) -> bool:
+    """Rate-limit check and storing the new code in one step, serialized per address.
+
+    Returns False when the address asked too recently or too often (nothing is stored then).
+    A still-open older code for the same address stops being valid.
+    """
     t = now()
     if not use_postgres():
-        mine = [c for c in _codes if c["email"] == email]
-        return any(c["created_at"] > t - timedelta(seconds=min_gap_s) for c in mine) or (
-            sum(c["created_at"] > t - timedelta(hours=1) for c in mine) >= per_hour
-        )
-    with connect() as conn:
+        with _mem_lock:
+            mine = [c for c in _codes if c["email"] == email]
+            if any(c["created_at"] > t - timedelta(seconds=min_gap_s) for c in mine) or (
+                sum(c["created_at"] > t - timedelta(hours=1) for c in mine) >= per_hour
+            ):
+                return False
+            for c in mine:
+                if c["used_at"] is None:
+                    c["used_at"] = t
+            _codes.append(
+                {"id": next(_code_ids), "email": email, "code_hash": code_hash, "attempts": 0, "used_at": None,
+                 "created_at": t, "expires_at": t + timedelta(seconds=ttl_s)}
+            )
+        return True
+    with connect() as conn:  # one transaction; the lock is released at its end
+        conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (email,))
         last, hour = conn.execute(
             "select count(*) filter (where created_at > %s), count(*) filter (where created_at > %s)"
             " from auth_codes where email = %s",
             (t - timedelta(seconds=min_gap_s), t - timedelta(hours=1), email),
         ).fetchone()
-        return last > 0 or hour >= per_hour
-
-
-def create_code(email: str, code_hash: str, ttl_s: int = 600) -> None:
-    """Store a new code; an older open one for the same address stops being valid."""
-    t = now()
-    if not use_postgres():
-        with _mem_lock:
-            for c in _codes:
-                if c["email"] == email and c["used_at"] is None:
-                    c["used_at"] = t
-            _codes.append(
-                {"id": len(_codes) + 1, "email": email, "code_hash": code_hash, "attempts": 0, "used_at": None,
-                 "created_at": t, "expires_at": t + timedelta(seconds=ttl_s)}
-            )
-        return
-    with connect() as conn:
+        if last > 0 or hour >= per_hour:
+            return False
         conn.execute("update auth_codes set used_at = %s where email = %s and used_at is null", (t, email))
         conn.execute(
             "insert into auth_codes (email, code_hash, expires_at, created_at) values (%s, %s, %s, %s)",
             (email, code_hash, t + timedelta(seconds=ttl_s), t),
         )
+        return True
 
 
 def claim_code_attempt(email: str) -> tuple[int, str] | None:

@@ -85,16 +85,19 @@ def _email(raw: str) -> str:
 def request_code(req: CodeRequest):
     email = _email(req.email)
     _secret()  # fail early when unconfigured
-    if db.rate_limited(email):
-        raise HTTPException(429, "too many requests, try again later")
+    mailing = mail.configured()
+    test_mode = not mailing and os.environ.get("AUTH_DEV_CODES") == "1"  # dev_code only without a mail key
+    if not mailing and not test_mode and os.environ.get("VERCEL_ENV") == "production":
+        raise HTTPException(503, "mail is not configured")
     code = f"{secrets.randbelow(10**6):06d}"
-    db.create_code(email, _code_hash(email, code))
+    if not db.issue_code(email, _code_hash(email, code)):
+        raise HTTPException(429, "too many requests, try again later")
     try:
         mail.send_code(email, code, req.language if req.language in mail.TEXTS else "de")
     except RuntimeError as e:
         log.error("mail failed: %s", e)
         raise HTTPException(502, "mail could not be sent")
-    if not mail.configured() and os.environ.get("AUTH_DEV_CODES") == "1":
+    if test_mode:
         return JSONResponse({"dev_code": code})
     return Response(status_code=204)
 
@@ -142,12 +145,17 @@ class DataBody(BaseModel):
 
 @router.put("/me/data")
 async def put_me_data(request: Request, user: dict = Depends(current_user)):
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BODY:
+        raise HTTPException(413, "payload too large (max 2 MB)")
     raw = await request.body()
     if len(raw) > MAX_BODY:
         raise HTTPException(413, "payload too large (max 2 MB)")
     try:
         body = TypeAdapter(DataBody).validate_python(json.loads(raw))
         base = datetime.fromisoformat(body.base_updated_at) if body.base_updated_at else None
+        if base is not None and base.tzinfo is None:
+            raise ValueError("base_updated_at needs a time zone")
     except (ValueError, ValidationError) as e:
         raise HTTPException(422, f"invalid body: {str(e).splitlines()[0]}")
     new = db.put_data(user["id"], body.people, body.profile, base)
