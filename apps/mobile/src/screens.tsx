@@ -211,7 +211,7 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
   const addWish = () => {
     const text = wish.trim();
     if (!text) return;
-    onChange({ ...me, wishes: [...me.wishes, text] });
+    onChange({ ...me, wishes: [...me.wishes, { title: text, source: 'typed', added_at: Date.now() }] });
     setWish('');
   };
   const name = me.name.trim();
@@ -249,9 +249,9 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
           {me.wishes.map((w, i) => (
             <View key={i} style={[s.line, { paddingVertical: 6 }, i === me.wishes.length - 1 && { borderBottomWidth: 2 }]}>
               <Body style={{ flex: 1 }} numberOfLines={2}>
-                {w}
+                {w.title}
               </Body>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${w}`} onPress={() => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${w.title}`} onPress={() => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ fontFamily: F.bold, fontSize: 24, lineHeight: 26, color: C.ink }}>×</Text>
               </Pressable>
             </View>
@@ -264,7 +264,7 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
         <AccountPanel account={account} />
       </ScrollView>
       <View style={[pad, { gap: 10, paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => shareText([title, ...me.wishes.map((w) => `- ${w}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
+        <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => shareText([title, ...me.wishes.map((w) => `- ${w.title}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
         <Mono mute style={{ textAlign: 'center' }}>
           Your wishlist stays on this phone until you share it or sign in to sync.
         </Mono>
