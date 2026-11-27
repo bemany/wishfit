@@ -1,6 +1,15 @@
 import { readJson, readSecret, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
+// 'de' when the first preferred language is German, else 'en'
+const deviceLanguage = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('de') ? 'de' : 'en';
+  } catch {
+    return 'en';
+  }
+};
+
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 // Mirrors docs/api.md
@@ -146,7 +155,7 @@ export const loadResult = (id: string) => request(`/results/${encodeURIComponent
 // A follow-up sends only the new message plus previous_id; the server prepends the history
 // image: a photo of a product as base64; the server names the product and carries on with that as text
 export async function recommend(p: Person, text: string, image?: string): Promise<Result> {
-  const base = { language: 'en', recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
+  const base = { language: deviceLanguage(), recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
   if (!p.lastResultId) return request('/recommend', { ...base, input_text: text });
   try {
     return await request('/recommend', { ...base, input_text: text, previous_id: p.lastResultId });
