@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { ApiError, call, clearSession, deviceLanguage, getSession, saveMe, savePeople, setSession, setSessionLostHandler, type Me, type Person, type Session } from './api';
+import { ApiError, call, clearSession, deviceLanguage, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
@@ -28,6 +28,7 @@ const toPerson = (p: any, i: number): Person | null =>
         messages: Array.isArray(p.messages) ? p.messages : [],
         lastResultId: typeof p.lastResultId === 'string' ? p.lastResultId : null,
         pins: Array.isArray(p.pins) ? p.pins : [],
+        ...friendFields(p),
         updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
       }
     : null;
@@ -36,7 +37,8 @@ const toMe = (p: any): Me | null =>
     ? {
         name: typeof p.name === 'string' ? p.name : '',
         color: typeof p.color === 'string' ? p.color : TAG_COLORS[1],
-        wishes: Array.isArray(p.wishes) ? p.wishes.filter((w: unknown) => typeof w === 'string') : [],
+        wishes: toWishes(p.wishes),
+        share: toShare(p.share),
         updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
       }
     : null;
@@ -53,7 +55,9 @@ export function mergePeople(local: Person[], server: Person[]): Person[] {
   const merged = local.map((p) => {
     const other = theirs.get(p.id);
     theirs.delete(p.id);
-    return other && stamp(other) > stamp(p) ? other : p;
+    const win = other && stamp(other) > stamp(p) ? other : p;
+    const lose = win === p ? other : p;
+    return win.wishes && lose?.wishes ? { ...win, wishes: newerPrices(win.wishes, lose.wishes) } : win;
   });
   return [...merged, ...theirs.values()];
 }
@@ -67,7 +71,9 @@ export function applyTombs(people: Person[], a: Tomb[], b: Tomb[], now = Date.no
 }
 // My profile: the newer one wins; a tie keeps the local one, so an untouched empty profile never hides the account's
 export function mergeMe(local: Me, server: Me | null): Me {
-  return server && stamp(server) > stamp(local) ? server : local;
+  if (!server) return local;
+  const [win, lose] = stamp(server) > stamp(local) ? [server, local] : [local, server];
+  return { ...win, wishes: newerPrices(win.wishes, lose.wishes) };
 }
 
 const hasProfile = (me: Me) => stamp(me) > 0 || me.name.trim() !== '' || me.wishes.length > 0;
@@ -222,6 +228,13 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
 
   const drop = useCallback(() => {
     clearSession();
+    // the profile link belongs to the account
+    if (meRef.current.share) {
+      const next = { ...meRef.current, share: null };
+      meRef.current = next;
+      setMe(next);
+      saveMe(next);
+    }
     reset();
     setSessionState(null);
     setSyncError(null);

@@ -8,11 +8,11 @@
 
 ## 2. App und Web (Paket F, `apps/mobile`)
 
-- [ ] 2.1 `Wish`-Objekte in `Me`, Umwandlung alter Strings, Anzeige mit Bild/Preis/Link
-- [ ] 2.2 Profil: Wunschlisten-Link importieren, Ergebnis übernehmen
-- [ ] 2.3 Profil: „Share my profile“ (Anmeldung vorausgesetzt), „Stop sharing“; alter Text-Teilen-Knopf entfällt
-- [ ] 2.4 Deep Link `wishloop://u/<slug>` und Web-Route `/u/<slug>`, Profilansicht mit „Add as friend“ bzw. „Open in the app“
-- [ ] 2.5 Person mit `friendSlug`, Doppelte vermeiden, Wünsche beim Öffnen aktualisieren, Hinweis bei 404
-- [ ] 2.6 Wünsche des Freundes beim ersten Chat-Turn als Kontext an den Agenten
-- [ ] 2.8 Wunschzeilen wie Design TagMe: Herkunft, Preisstatus, Preis; Preise beim Öffnen aktualisieren (älter als 6 h), auch bei Freunden
-- [ ] 2.7 tsc, Simulator- und Web-Test des ganzen Ablaufs (zwei Konten)
+- [x] 2.1 `Wish`-Objekte in `Me`, Umwandlung alter Strings, Anzeige mit Bild/Preis/Link
+- [x] 2.2 Profil: Wunschlisten-Link importieren, Ergebnis übernehmen
+- [x] 2.3 Profil: „Share my profile“ (Anmeldung vorausgesetzt), „Stop sharing“; alter Text-Teilen-Knopf entfällt
+- [x] 2.4 Deep Link `wishloop://u/<slug>` und Web-Route `/u/<slug>`, Profilansicht mit „Add as friend“ bzw. „Open in the app“
+- [x] 2.5 Person mit `friendSlug`, Doppelte vermeiden, Wünsche beim Öffnen aktualisieren, Hinweis bei 404
+- [x] 2.6 Wünsche des Freundes beim ersten Chat-Turn als Kontext an den Agenten
+- [x] 2.8 Wunschzeilen wie Design TagMe: Herkunft, Preisstatus, Preis; Preise beim Öffnen aktualisieren (älter als 6 h), auch bei Freunden
+- [x] 2.7 tsc, Simulator- und Web-Test des ganzen Ablaufs (zwei Konten)

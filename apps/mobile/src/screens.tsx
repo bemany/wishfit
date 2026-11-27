@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
 import { AccountPanel } from './account-ui';
+import { ImportBox, SharePanel, T, WishList, mergeWishes } from './profile';
 import type { Account } from './account';
 import { isPinned, lastResult, sayOf, type Me, type Person, type Product, type Recommendation, type Result } from './api';
 import { canOpenSettings, openLink, openSettings, shareText } from './platform';
@@ -204,21 +205,20 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
   );
 }
 
-// Me: my own tag and wishlist. Stays on this phone unless signed in, sharing goes through the system share sheet
+// Me: my own tag and wishlist. Stays on this phone unless signed in; shared as a profile link
 export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: Account; onChange: (me: Me) => void; onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [wish, setWish] = useState('');
   const addWish = () => {
-    const text = wish.trim();
-    if (!text) return;
-    onChange({ ...me, wishes: [...me.wishes, text] });
+    const title = wish.trim();
+    if (!title) return;
+    onChange({ ...me, wishes: mergeWishes(me.wishes, [{ title, source: 'typed', added_at: Date.now() }]) });
     setWish('');
   };
-  const name = me.name.trim();
-  const title = name ? `${name}'s wishlist` : 'My wishlist';
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
+      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
         <TopBar onBack={onBack} title="Me" />
         <Tag color={me.color} style={{ gap: 8 }}>
           <View style={s.row}>
@@ -241,34 +241,27 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
             </Pressable>
           ))}
         </View>
-        <View>
-          <Mono mute style={{ paddingBottom: 10 }}>
-            My wishlist
-          </Mono>
-          {me.wishes.length === 0 && <Body style={{ color: C.mute }}>Nothing here yet. Add the first thing you would love to get.</Body>}
-          {me.wishes.map((w, i) => (
-            <View key={i} style={[s.line, { paddingVertical: 6 }, i === me.wishes.length - 1 && { borderBottomWidth: 2 }]}>
-              <Body style={{ flex: 1 }} numberOfLines={2}>
-                {w}
-              </Body>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${w}`} onPress={() => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontFamily: F.bold, fontSize: 24, lineHeight: 26, color: C.ink }}>×</Text>
-              </Pressable>
-            </View>
-          ))}
+        <SharePanel me={me} account={account} onChange={onChange} onNeedSignIn={() => scroll.current?.scrollToEnd({ animated: true })} />
+        <View style={{ gap: 10 }}>
+          <Mono mute>{T.myWishlist}</Mono>
+          <WishList wishes={me.wishes} mine color={me.color} empty={T.noWishes} onRemove={(i) => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} />
         </View>
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-          <TextInput accessibilityLabel="New wish" value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder="A wish or a link" placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
-          <Round icon="plus" label="Add wish" ink size={52} onPress={addWish} />
+        <ImportBox
+          onImported={(incoming) => {
+            const next = mergeWishes(me.wishes, incoming);
+            if (next.length !== me.wishes.length) onChange({ ...me, wishes: next });
+            return next.length - me.wishes.length;
+          }}
+        />
+        <View style={{ gap: 8 }}>
+          <Mono mute>{T.addWish}</Mono>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <TextInput accessibilityLabel="New wish" value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder={T.addPlaceholder} placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
+            <Round icon="plus" label="Add wish" ink size={52} onPress={addWish} />
+          </View>
         </View>
         <AccountPanel account={account} />
       </ScrollView>
-      <View style={[pad, { gap: 10, paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => shareText([title, ...me.wishes.map((w) => `- ${w}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
-        <Mono mute style={{ textAlign: 'center' }}>
-          Your wishlist stays on this phone until you share it or sign in to sync.
-        </Mono>
-      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -521,6 +514,7 @@ export function Thread({
   onOpen,
   onEdit,
   onPin,
+  header,
 }: {
   person: Person;
   busy: boolean;
@@ -531,6 +525,8 @@ export function Thread({
   onOpen: (r: Result) => void;
   onEdit: () => void;
   onPin: OnPin;
+  // shown above the chat, e.g. a friend's shared wishes
+  header?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -594,6 +590,7 @@ export function Thread({
         // A new answer is read from its first line; everything else follows the bottom
         onContentSizeChange={() => !answered && scroll.current?.scrollToEnd({ animated: true })}
       >
+        {header}
         {empty && (
           <>
             <Tag color={person.color} style={{ gap: 12, paddingBottom: 24 }}>

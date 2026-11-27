@@ -52,6 +52,9 @@ export type Person = {
   messages: Msg[];
   lastResultId: string | null;
   pins: Pin[];
+  // a friend added from their profile link; wishes are the last copy of their shared list
+  friendSlug?: string;
+  wishes?: Wish[];
   // ms of the last change, used to merge with the account
   updatedAt?: number;
 };
@@ -170,9 +173,11 @@ export const loadResult = (id: string) => request(`/results/${encodeURIComponent
 
 // A follow-up sends only the new message plus previous_id; the server prepends the history
 // image: a photo of a product as base64; the server names the product and carries on with that as text
-export async function recommend(p: Person, text: string, image?: string): Promise<Result> {
+// context: data that goes with the first message only (a friend's shared wishes); the server keeps it in the history after that
+export async function recommend(p: Person, text: string, image?: string, context?: string | null): Promise<Result> {
   const base = { language: deviceLanguage(), recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
-  if (!p.lastResultId) return request('/recommend', { ...base, input_text: text });
+  const withContext = (t: string) => (context ? `${t}\n\n${context}` : t);
+  if (!p.lastResultId) return request('/recommend', { ...base, input_text: withContext(text) });
   try {
     return await request('/recommend', { ...base, input_text: text, previous_id: p.lastResultId });
   } catch (e) {
@@ -180,7 +185,7 @@ export async function recommend(p: Person, text: string, image?: string): Promis
     // The server forgot the earlier result (restart): send the whole history from the device instead
     const history = p.messages.flatMap((m) => (m.role === 'user' ? [m.text] : []));
     // same shape as the server's own history: first message, then follow-ups marked as such
-    return request('/recommend', { ...base, input_text: [...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n') });
+    return request('/recommend', { ...base, input_text: withContext([...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n')) });
   }
 }
 
@@ -196,6 +201,8 @@ export const uniqueColors = (people: Person[]): Person[] => {
     return free ? { ...p, color } : p;
   });
 };
+export const friendFields = (p: any): Pick<Person, 'friendSlug' | 'wishes'> =>
+  typeof p?.friendSlug === 'string' && p.friendSlug ? { friendSlug: p.friendSlug, wishes: toWishes(p.wishes) } : {};
 export const loadPeople = (): Person[] => {
   try {
     const raw = (readJson('people') as any[] | null) ?? [];
@@ -209,6 +216,7 @@ export const loadPeople = (): Person[] => {
       messages: p.messages ?? [],
       lastResultId: p.lastResultId ?? null,
       pins: Array.isArray(p.pins) ? p.pins : [],
+      ...friendFields(p),
       updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
     }));
     const fixed = uniqueColors(people);
@@ -222,8 +230,65 @@ export const savePeople = (people: Person[]) => {
   writeJson('people', people);
 };
 
+// A wish on a profile, mirrors docs/api.md (profile-link-friends)
+export type WishSource = 'amazon' | 'snap' | 'typed' | 'link';
+export type Price = {
+  price_eur: number | null;
+  offer_count: number | null;
+  in_stock: boolean | null;
+  trend: 'down' | 'stable' | 'up' | null;
+  change_percent: number | null;
+  url: string | null;
+  image_url: string | null;
+  checked_at: string;
+};
+export type Wish = { title: string; price_eur?: number | null; url?: string | null; image_url?: string | null; source: WishSource | null; added_at: number | null; price?: Price | null };
+
+const SOURCES: WishSource[] = ['amazon', 'snap', 'typed', 'link'];
+const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const toPrice = (p: any): Price | null =>
+  p && typeof p === 'object' && typeof p.checked_at === 'string'
+    ? {
+        price_eur: num(p.price_eur),
+        offer_count: num(p.offer_count),
+        in_stock: typeof p.in_stock === 'boolean' ? p.in_stock : null,
+        trend: p.trend === 'down' || p.trend === 'stable' || p.trend === 'up' ? p.trend : null,
+        change_percent: num(p.change_percent),
+        url: str(p.url),
+        image_url: str(p.image_url),
+        checked_at: p.checked_at,
+      }
+    : null;
+// Wishes used to be plain strings: those become typed wishes
+export const toWish = (w: any): Wish | null => {
+  if (typeof w === 'string') return w.trim() ? { title: w, source: 'typed', added_at: null } : null;
+  if (!w || typeof w !== 'object' || typeof w.title !== 'string' || !w.title.trim()) return null;
+  return {
+    title: w.title,
+    price_eur: num(w.price_eur),
+    url: str(w.url),
+    image_url: str(w.image_url),
+    source: SOURCES.includes(w.source) ? w.source : null,
+    added_at: num(w.added_at),
+    price: toPrice(w.price),
+  };
+};
+export const toWishes = (raw: unknown): Wish[] => (Array.isArray(raw) ? raw.map(toWish).filter((w): w is Wish => !!w) : []);
+// Same wish: same link, or the same title
+const norm = (t: string) => t.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+export const sameWish = (a: Wish, b: Wish) => (!!a.url && a.url === b.url) || norm(a.title) === norm(b.title);
+// The list stays as in `wishes`; per wish the more recently checked price wins (prices do not stamp updatedAt)
+export const newerPrices = (wishes: Wish[], other: Wish[]): Wish[] =>
+  wishes.map((w) => {
+    const o = other.find((x) => sameWish(x, w));
+    return o?.price && (!w.price || o.price.checked_at > w.price.checked_at) ? { ...w, price: o.price } : w;
+  });
+
 // My own tag and wishlist. Local to this phone like the people, in a second file
-export type Me = { name: string; color: string; wishes: string[]; updatedAt?: number };
+// share: my public profile link while it is shared
+export type Me = { name: string; color: string; wishes: Wish[]; share?: { slug: string; url: string } | null; updatedAt?: number };
+export const toShare = (v: any) => (v && typeof v === 'object' && typeof v.slug === 'string' && typeof v.url === 'string' ? { slug: v.slug, url: v.url } : null);
 export const loadMe = (): Me => {
   const empty: Me = { name: '', color: TAG_COLORS[1], wishes: [] };
   try {
@@ -232,7 +297,8 @@ export const loadMe = (): Me => {
     return {
       name: typeof raw.name === 'string' ? raw.name : '',
       color: typeof raw.color === 'string' ? raw.color : empty.color,
-      wishes: Array.isArray(raw.wishes) ? raw.wishes.filter((w: unknown) => typeof w === 'string') : [],
+      wishes: toWishes(raw.wishes),
+      share: toShare(raw.share),
       updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : undefined,
     };
   } catch {

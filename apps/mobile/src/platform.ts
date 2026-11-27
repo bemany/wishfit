@@ -12,3 +12,5 @@ export const shareText = (message: string) => Share.share({ message }).catch(() 
 // The system settings page of the app, where a refused permission can be granted again
 export const canOpenSettings = true;
 export const openSettings = () => Linking.openSettings();
+
+export const isWeb = false;
