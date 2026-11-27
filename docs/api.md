@@ -12,10 +12,12 @@ Request (`services/agent/examples/simple.request.json`, `chaotic.request.json`, 
 |---|---|---|
 | `input_text` | string? | anything that describes the person or their wishes: a pasted wishlist, a chat export (e.g. WhatsApp), notes, a dictated description. Up to 20,000 characters. The agent extracts gift ideas from it. |
 | `wishes` | string[]? | optional, 0-10 explicit product names or free-text wishes. At least one of `input_text` and `wishes` must be given. |
-| `budget_eur` | number | required, total budget including shipping |
-| `occasion` | string | required |
+| `budget_eur` | number | required (optional with `previous_id`), total budget including shipping |
+| `occasion` | string | required (optional with `previous_id`) |
 | `recipient_name` | string? | optional |
 | `preferences` | string? | optional free text (brand, colour, lifestyle) |
+| `language` | `"de"` \| `"en"`? | language of everything the agent writes (`reply`, reasons, signal labels, questions). Default `de`. |
+| `previous_id` | string? | follow-up in a conversation: id of the earlier result for the same person. The server prepends that request's input and earlier follow-ups, so the client sends only the new message in `input_text`. `budget_eur`, `occasion`, `recipient_name` are taken from the earlier request when omitted. Unknown id: 404. |
 | `demo_case` | `"simple"` \| `"chaotic"` \| `"chat"`? | optional: use the stored idealo snapshot instead of live MCP data. The model call is always live. |
 
 Response (`sample.response.json`, `sample.clarification.response.json`, `sample.chat.response.json`, `sample.ideas.response.json`):
@@ -24,6 +26,7 @@ Response (`sample.response.json`, `sample.clarification.response.json`, `sample.
 |---|---|---|
 | `id` | string | result id, use with `/results/{id}` and `/trace/{id}` |
 | `status` | `"recommendation"` \| `"needs_clarification"` \| `"ideas_only"` | `ideas_only`: the agent understood the input and lists gift ideas, but has no idealo data for them (`top` null, `uncertainty` says why) |
+| `reply` | string | the agent's chat message for this turn, 1-2 sentences in `language`, spoken to the giver (what it picked and why, or what it needs). Always present. |
 | `understood` | `{summary: string, interests: string[], candidates: {idea: string, why: string}[]}` \| null | what the agent took from `input_text`; null (or absent) when only `wishes` were given. `why` quotes or paraphrases the part of the input the idea comes from. |
 | `top` | Recommendation \| null | null when `needs_clarification` |
 | `alternatives` | Recommendation[] | 2-3 entries, may be empty when `needs_clarification` |

@@ -51,16 +51,20 @@ def invalid_request(_, exc: RequestValidationError):
 class RecommendRequest(BaseModel):
     input_text: str | None = Field(default=None, max_length=20000)
     wishes: list[str] = Field(default_factory=list, max_length=10)
-    budget_eur: float = Field(gt=0)
-    occasion: str
+    budget_eur: float | None = Field(default=None, gt=0)
+    occasion: str | None = None
     recipient_name: str | None = None
     preferences: str | None = None
+    language: Literal["de", "en"] | None = None  # effective default: the earlier request's, else "de"
+    previous_id: str | None = None
     demo_case: Literal["simple", "chaotic", "chat"] | None = None
 
     @model_validator(mode="after")
     def some_input(self):
         if not self.wishes and not (self.input_text or "").strip():
             raise ValueError("give input_text or at least one wish")
+        if not self.previous_id and (self.budget_eur is None or self.occasion is None):
+            raise ValueError("budget_eur and occasion are required without previous_id")
         return self
 
 
@@ -115,6 +119,7 @@ class Decision(BaseModel):
     """What the model must return. The response adds id, model, trace_url, created_at."""
 
     status: Literal["recommendation", "needs_clarification", "ideas_only"]
+    reply: str = Field(min_length=1)
     top: Recommendation | None = None
     alternatives: list[Recommendation] = Field(default_factory=list, max_length=3)
     uncertainty: Uncertainty | None = None
@@ -281,6 +286,7 @@ A missing shipping_eur is null, not 0.
 Return exactly one JSON object, no prose, no markdown:
 {
   "status": "recommendation" | "needs_clarification",
+  "reply": string,
   "top": Recommendation | null,
   "alternatives": [Recommendation],
   "uncertainty": {"reasons": [string], "question": string} | null
@@ -309,7 +315,16 @@ product, nothing fits the budget) do NOT guess: set status "needs_clarification"
 concrete reason in uncertainty.reasons and ask ONE follow-up question in uncertainty.question that would \
 resolve the most important ambiguity. Alternatives may be empty then.
 - If you can recommend but some doubt remains, keep status "recommendation" and still fill uncertainty.
- Address the giver informally with "du", never "Sie".
+- Write every human-readable string in the language given in "language": "de" = German, addressing the \
+giver informally with "du", never "Sie"; "en" = English.
+- "follow_up" (may be null) is the giver's new message after the earlier turn. Your answer must satisfy it; if \
+no match does, say so in reply and uncertainty instead of ignoring it.
+- reply: your chat message for this turn, 1-2 sentences, spoken to the giver: what you picked and why in plain \
+words, or what you need to know. Never empty.
+- "previous_pick" (may be null) is the product you recommended in the earlier turn of this conversation \
+(product name, total, action): it is the reference for follow-ups like "cheaper" or "something else". \
+Do not return the same product again unless the giver asks for it. "Cheaper" means a total clearly below \
+previous_pick.total_eur.
 - Prefer a recommendation: if at least one match fits the budget and the person, recommend it and put remaining \
 doubts into uncertainty. Use needs_clarification only when no match is usable at all."""
 
@@ -331,14 +346,20 @@ UNDERSTAND_PROMPT = """You are Wishloop, a gift-buying agent. Step 1: understand
 the giver knows about a person: a pasted wishlist, a chat export, notes, interests, a dictated description, \
 plus occasion, budget and optional preferences. Return ONE JSON object and nothing else:
 {"summary": string, "interests": [string], "candidates": [{"idea": string, "why": string}]}
-- summary: one German sentence about the person as far as the input supports it.
-- interests: up to 6 short German keywords found in the input.
+- summary: one sentence about the person as far as the input supports it.
+- interests: up to 6 short keywords found in the input.
 - candidates: 1-5 concrete gift ideas, each phrased as a product search term a price-comparison site would \
-understand (German), most promising first, realistic for the budget. why: the part of the input the idea comes \
-from, quoted or closely paraphrased in German. Respect dislikes and constraints stated in the input.
+understand (always German: the catalog is idealo.de), most promising first, realistic for the budget. why: the \
+part of the input the idea comes from, quoted or closely paraphrased. Respect dislikes and constraints stated in the input.
 - Lines starting with "Nachtrag:" are follow-up instructions from the giver after an earlier answer (for \
 example cheaper, something completely different, the person already owns it). Apply them: adjust or replace the \
 candidates accordingly instead of repeating the earlier ones.
+- Write every human-readable string in the language given in "language": "de" = German, addressing the \
+giver informally with "du", never "Sie"; "en" = English.
+- "previous_pick" (may be null) is the product you recommended in the earlier turn of this conversation \
+(product name, total, action): it is the reference for follow-ups like "cheaper" or "something else". \
+Do not return the same product again unless the giver asks for it. "Cheaper" means a total clearly below \
+previous_pick.total_eur.
 - Use only what the input says. Do not invent facts about the person. If the input names explicit products, \
 keep them as candidates."""
 
@@ -382,9 +403,9 @@ def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: 
     raise HTTPException(502, "model returned invalid JSON twice")
 
 
-def understand(req: RecommendRequest, trace: dict) -> Understood:
+def understand(req: RecommendRequest, trace: dict, previous_pick: dict | None = None) -> Understood:
     """Step 1: turn free-form input into gift ideas."""
-    user = req.model_dump(exclude={"demo_case"})
+    user = req.model_dump(exclude={"demo_case", "previous_id"}) | {"previous_pick": previous_pick}
     messages = [
         {"role": "system", "content": UNDERSTAND_PROMPT},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
@@ -392,10 +413,13 @@ def understand(req: RecommendRequest, trace: dict) -> Understood:
     return call_model("understand", messages, Understood, trace)[0]
 
 
-def decide(req: RecommendRequest, understood: Understood | None, idealo: list[dict], trace: dict) -> tuple[Decision, str]:
+def decide(req: RecommendRequest, understood: Understood | None, idealo: list[dict], trace: dict,
+           previous_pick: dict | None = None, follow_up: str | None = None) -> tuple[Decision, str]:
     """Step 2, the deciding call: buy, wait or alternative, from the request plus the idealo data."""
     user = {
-        "request": req.model_dump(exclude={"demo_case", "input_text"}),
+        "request": req.model_dump(exclude={"demo_case", "input_text", "previous_id"}),
+        "previous_pick": previous_pick,
+        "follow_up": follow_up,
         "understood": understood.model_dump() if understood else None,
         "idealo_data": idealo,
     }
@@ -426,13 +450,48 @@ def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest
 
 # --- endpoints -------------------------------------------------------------
 
+IDEAS_ONLY = {  # language -> (reply, reason, question)
+    "de": ("Ich habe ein paar Ideen gefunden, aber noch keine Preisdaten dazu. Welche soll ich genauer prüfen?",
+           "Für diese Geschenkideen liegen noch keine idealo-Daten vor (Preise, Verfügbarkeit, Angebote).",
+           "Welche der Ideen soll ich genauer prüfen, sobald Preisdaten verfügbar sind?"),
+    "en": ("I found a few ideas but have no price data for them yet. Which one should I look into?",
+           "There is no idealo data for these gift ideas yet (prices, availability, offers).",
+           "Which of the ideas should I check in detail once price data is available?"),
+}
+BASICS = ("budget_eur", "occasion", "recipient_name", "preferences", "language")
+
+
+def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict, dict | None]:
+    """Resolve previous_id: fill omitted basics from the earlier request and prepend the earlier messages.
+    Returns the effective request, the conversation to store with this result, and the previous pick."""
+    message = req.input_text or ", ".join(req.wishes)  # ponytail: a wishes-only turn is kept as one text line
+    earlier, previous_pick = {"messages": []}, None
+    if req.previous_id:
+        row = storage.get(req.previous_id)
+        if row is None:
+            raise HTTPException(404, "unknown previous_id")
+        earlier = row[1].get("conversation") or earlier  # results stored before conversations existed
+        top = row[0].get("top")
+        previous_pick = top and {k: top.get(k) for k in ("product_name", "total_eur", "action")}
+    basics = {k: getattr(req, k) if getattr(req, k) is not None else earlier.get(k) for k in BASICS}
+    basics["language"] = basics["language"] or "de"
+    if basics["budget_eur"] is None or basics["occasion"] is None:
+        raise HTTPException(422, "budget_eur and occasion are required")  # earlier result carries no basics
+    messages = earlier["messages"] + [message]
+    update = dict(basics)
+    if len(messages) > 1:
+        update["input_text"] = "\n".join([messages[0]] + [f"Nachtrag: {m}" for m in messages[1:]])
+    return req.model_copy(update=update), {"messages": messages, **basics}, previous_pick
+
+
 
 @app.post("/recommend")
 def recommend(req: RecommendRequest) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
-    trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
+    req, conversation, previous_pick = continue_conversation(req)
+    trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": [], "conversation": conversation}
     req = with_amazon_wishlist(req, trace)
-    understood = understand(req, trace) if (req.input_text or "").strip() else None
+    understood = understand(req, trace, previous_pick) if (req.input_text or "").strip() else None
     if understood:
         # the extracted ideas are researched like explicit wishes
         req = req.model_copy(update={"wishes": (req.wishes + [c.idea for c in understood.candidates])[:10]})
@@ -444,16 +503,12 @@ def recommend(req: RecommendRequest) -> RecommendResponse:
         # No idealo data for free input (MCP not connected): say so instead of inventing prices.
         idealo = None
     if idealo is None:
-        decision = Decision(
-            status="ideas_only",
-            uncertainty=Uncertainty(
-                reasons=["Für diese Geschenkideen liegen noch keine idealo-Daten vor (Preise, Verfügbarkeit, Angebote)."],
-                question="Welche der Ideen soll ich genauer prüfen, sobald Preisdaten verfügbar sind?",
-            ),
-        )
+        reply, reason, question = IDEAS_ONLY[req.language]
+        decision = Decision(status="ideas_only", reply=reply, uncertainty=Uncertainty(reasons=[reason], question=question))
         model = trace["model_calls"][-1]["model"]
     else:
-        decision, model = decide(req, understood, idealo, trace)
+        follow_up = conversation["messages"][-1] if req.previous_id else None
+        decision, model = decide(req, understood, idealo, trace, previous_pick, follow_up)
     response = RecommendResponse(
         **decision.model_dump(),
         understood=understood,

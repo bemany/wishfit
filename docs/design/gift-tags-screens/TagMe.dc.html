@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Me: my own tag</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tag.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="t" style="width: 390px; height: 1040px; padding: 60px 16px 28px; gap: 16px">
+<div class="t-top"><span class="t-word">wishfit</span><a class="t-pill" href="TagFriends.dc.html">3 friends</a></div>
+<div class="t-tag" style="--c: var(--lilac); gap: 12px">
+<div class="t-row"><span class="t-mono">@esref · my tag</span><span class="t-mono">4 wishes</span></div>
+<span class="t-name" style="font-size: 52px; line-height: 48px">Esref</span>
+<span>Coffee, running, anything that is not plastic. Birthday on 14 March.</span>
+<div class="t-stamps"><span class="t-stamp" style="--r: -3deg">Seen by<b>3 friends</b></span><span class="t-stamp" style="--r: 2deg">Budget hint<b>around €50</b></span></div>
+<a class="t-btn" href="TagShare.dc.html">Send my tag to friends</a>
+</div>
+
+<div>
+<div class="t-row" style="padding-bottom: 10px"><span class="t-mono t-mute">My wishlist</span><a class="t-mono" href="TagSnap.dc.html" style="text-decoration: underline">Add a wish</a></div>
+<div class="t-line"><span class="t-dot" style="--c: var(--lilac)"></span><div style="flex: 1; min-width: 0"><b>Bluetooth speaker</b><div class="t-mute" style="font-size: 14px; line-height: 20px">From my Amazon wishlist · in stock at 9 shops</div></div><b>€44.13</b></div>
+<div class="t-line"><span class="t-dot" style="--c: var(--lilac)"></span><div style="flex: 1; min-width: 0"><b>Hand coffee grinder</b><div class="t-mute" style="font-size: 14px; line-height: 20px">Snapped on 27 Nov · price stable</div></div><b>€34.90</b></div>
+<div class="t-line"><span class="t-dot" style="--c: var(--paper)"></span><div style="flex: 1; min-width: 0"><b>Running belt</b><div class="t-mute" style="font-size: 14px; line-height: 20px">Typed in · no price data yet</div></div><b>[price]</b></div>
+<div class="t-line" style="border-bottom: 2px solid var(--ink)"><span class="t-dot" style="--c: var(--ink)"></span><div style="flex: 1; min-width: 0"><b style="text-decoration: line-through">Steel water bottle</b><div class="t-mute" style="font-size: 14px; line-height: 20px">Someone is on it. I will not tell you who.</div></div><b>€29.45</b></div>
+</div>
+
+<div class="t-bar">
+<div style="display: flex; gap: 8px"><a class="t-pill t-pill--lg" href="TagSnap.dc.html" style="flex: 1; justify-content: center">Snap a wish</a><button class="t-pill t-pill--lg" type="button" style="flex: 1; justify-content: center">Paste a wishlist link</button></div>
+<nav class="t-tabs" aria-label="Main">
+<a class="t-tab" href="TagPeople.dc.html">People</a>
+<a class="t-tab" href="TagSnap.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 16.500a3.500 3.500 0 100-7 3.500 3.500 0 000 7z"/></svg>Snap</a>
+<a class="t-tab t-tab--on" href="TagMe.dc.html">Me</a>
+</nav>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

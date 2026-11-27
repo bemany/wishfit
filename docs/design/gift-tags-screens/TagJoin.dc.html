@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claim your tag</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tag.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+body{margin:0}
+.tj-in{width:100%;border:0;border-bottom:2px solid #0b0b0c;background:transparent;padding:2px 0 6px;color:#0b0b0c;font:800 34px/36px "Bricolage Grotesque",sans-serif;letter-spacing:-.04em;border-radius:0}
+.tj-in::placeholder{color:rgba(11,11,12,.35)}
+</style>
+</helmet>
+<div class="t" style="width: 390px; height: 844px; padding: 60px 16px 28px; gap: 16px">
+<div class="t-top">
+<a class="t-round" href="TagPeople.dc.html" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></a>
+<span class="t-mono">Account</span>
+<span style="width: 44px"></span>
+</div>
+<h1 class="t-display">Claim your tag.</h1>
+<span>An account gives you your own tag, lets friends find it and keeps your people in sync across phones.</span>
+<div class="t-tag" style="--c: var(--lilac); gap: 16px">
+<label style="display: flex; flex-direction: column; gap: 4px"><span class="t-mono">Your name</span><input id="tj-name" class="tj-in" value="Esref" placeholder="Name" autocomplete="name"></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span class="t-mono">Handle</span><input id="tj-handle" class="tj-in" value="@esref" placeholder="@handle" autocapitalize="none" style="font-size: 24px; line-height: 28px"></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span class="t-mono">Email</span><input id="tj-mail" class="tj-in" type="email" placeholder="you@example.com" autocomplete="email" style="font-size: 24px; line-height: 28px"></label>
+</div>
+<div class="t-bar">
+<a class="t-btn" href="TagMe.dc.html">Send me a sign-in link</a>
+<button class="t-pill t-pill--lg" type="button" style="justify-content: center; min-height: 52px; font-size: 16px">Continue with Apple</button>
+<a class="t-mono t-mute" href="TagPeople.dc.html" style="text-align: center; text-decoration: underline">Not now, keep using it without one</a>
+<span class="t-mono t-mute" style="text-align: center">No password. Tags you made stay yours.</span>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -37,7 +37,7 @@ def stub(*outputs: str):
 
 
 def decision(sample: str) -> dict:
-    return {k: example(sample)[k] for k in ("status", "top", "alternatives", "uncertainty")}
+    return {k: example(sample)[k] for k in ("status", "reply", "top", "alternatives", "uncertainty")}
 
 
 api = TestClient(main.app)
@@ -80,11 +80,12 @@ print("chaotic ok:", body.status, "-", body.uncertainty.question)
 
 # chat case: free-form input -> understand step, then decide step, both in the trace
 chat = example("sample.chat.response.json")
-stub(json.dumps(chat["understood"]), json.dumps({k: chat[k] for k in ("status", "top", "alternatives", "uncertainty")}))
+stub(json.dumps(chat["understood"]), json.dumps(decision("sample.chat.response.json")))
 r = api.post("/recommend", json=example("chat.request.json"))
 assert r.status_code == 200, r.text
 body = main.RecommendResponse.model_validate(r.json())
 assert body.status == "recommendation" and body.understood.candidates and body.top.total_eur == 48.89
+assert body.reply == chat["reply"]
 trace = api.get(body.trace_url).json()
 assert [c["step"] for c in trace["model_calls"]] == ["understand", "decide"]
 assert "Kopfhörer fallen" in trace["model_calls"][0]["input"][1]["content"]  # raw input reached step 1
@@ -99,6 +100,25 @@ body = main.RecommendResponse.model_validate(r.json())
 assert body.status == "ideas_only" and body.top is None and body.understood.candidates and body.uncertainty.reasons
 assert len(api.get(body.trace_url).json()["model_calls"]) == 1
 print("ideas   ok:", body.status, [c.idea for c in body.understood.candidates][:2])
+
+# follow-up: only previous_id and the new message; basics, language and earlier input come from the stored result
+stub(json.dumps(chat["understood"]), json.dumps(decision("sample.chat.response.json")))
+first = api.post("/recommend", json=example("chat.request.json") | {"language": "en"})
+assert first.status_code == 200, first.text
+assert '"language": "en"' in api.get(first.json()["trace_url"]).json()["model_calls"][1]["input"][1]["content"]
+stub(json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"previous_id": first.json()["id"], "input_text": "Günstiger"})
+assert r.status_code == 200, r.text
+body = main.RecommendResponse.model_validate(r.json())
+assert body.id != first.json()["id"] and body.reply == main.IDEAS_ONLY["en"][0]  # language inherited
+trace = api.get(body.trace_url).json()
+step1 = trace["model_calls"][0]["input"][1]["content"]
+assert "Kopfhörer fallen" in step1 and "Nachtrag: Günstiger" in step1 and '"language": "en"' in step1
+assert first.json()["top"]["product_name"] in step1  # previous pick is the reference for "cheaper"
+assert len(trace["conversation"]["messages"]) == 2 and trace["conversation"]["budget_eur"] == example("chat.request.json")["budget_eur"]
+r = api.post("/recommend", json={"previous_id": "r_missing", "input_text": "Günstiger"})
+assert r.status_code == 404 and r.json() == {"detail": "unknown previous_id"}
+print("followup ok:", body.status, "-", body.reply)
 
 import amazon
 assert amazon.find_url("schau mal https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ?ref_=wl_share danke").startswith("https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ")
