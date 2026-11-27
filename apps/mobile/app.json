@@ -8,11 +8,13 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "de.bemany.wishloop",
+      "bundleIdentifier": "app.wishfit.ios",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio.",
-        "NSSpeechRecognitionUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio."
-      }
+        "NSSpeechRecognitionUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
