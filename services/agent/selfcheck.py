@@ -17,6 +17,7 @@ os.environ.pop("DATABASE_URL", None)  # always in-memory here
 for _k in ("IDEALO_MCP_URL", "IDEALO_CLIENT_ID", "LLM_BASE_URL"):
     os.environ[_k] = ""  # never call the real idealo MCP or a real model from the self-check
 os.environ["LLM_MODEL"] = "stub-model"
+os.environ["LLM_VISION_MODEL"] = "stub-model"
 
 
 def example(name: str) -> dict:
@@ -119,6 +120,18 @@ assert len(trace["conversation"]["messages"]) == 2 and trace["conversation"]["bu
 r = api.post("/recommend", json={"previous_id": "r_missing", "input_text": "Günstiger"})
 assert r.status_code == 404 and r.json() == {"detail": "unknown previous_id"}
 print("followup ok:", body.status, "-", body.reply)
+
+# photo: the vision step names the product, the image itself never reaches the text model or the trace
+stub(json.dumps({"product": "Lego Orchidee 10311", "search_term": "Lego Orchidee"}), json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"image_base64": "iVBORw0KGgo=", "budget_eur": 60, "occasion": "Geburtstag", "language": "en"})
+assert r.status_code == 200, r.text
+trace = api.get(r.json()["trace_url"]).json()
+assert [c["step"] for c in trace["model_calls"]] == ["photo", "understand"] and "iVBOR" not in json.dumps(trace)
+assert trace["conversation"]["messages"] == ["[Foto] Lego Orchidee 10311 (Suchbegriff: Lego Orchidee)"]
+stub(json.dumps({"product": "", "search_term": ""}))
+r = api.post("/recommend", json={"image_base64": "iVBORw0KGgo=", "budget_eur": 60, "occasion": "Geburtstag"})
+assert r.status_code == 422 and "photo" in r.json()["detail"]
+print("photo   ok")
 
 import amazon
 assert amazon.find_url("schau mal https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ?ref_=wl_share danke").startswith("https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ")

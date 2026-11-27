@@ -58,11 +58,13 @@ class RecommendRequest(BaseModel):
     language: Literal["de", "en"] | None = None  # effective default: the earlier request's, else "de"
     previous_id: str | None = None
     demo_case: Literal["simple", "chaotic", "chat"] | None = None
+    # a photo of a product (JPEG or PNG, base64 without a data: prefix); a vision model names what it shows
+    image_base64: str | None = Field(default=None, max_length=6_000_000)
 
     @model_validator(mode="after")
     def some_input(self):
-        if not self.wishes and not (self.input_text or "").strip():
-            raise ValueError("give input_text or at least one wish")
+        if not self.wishes and not (self.input_text or "").strip() and not self.image_base64:
+            raise ValueError("give input_text, a photo or at least one wish")
         if not self.previous_id and (self.budget_eur is None or self.occasion is None):
             raise ValueError("budget_eur and occasion are required without previous_id")
         return self
@@ -331,6 +333,7 @@ doubts into uncertainty. Use needs_clarification only when no match is usable at
 
 GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
 DEFAULT_MODEL = "anthropic/claude-sonnet-5.5"
+VISION_MODEL = "google/gemma-3-27b-it"  # on Nebius Token Factory; LLM_VISION_MODEL overrides it
 
 
 def llm_client() -> OpenAI:
@@ -351,6 +354,9 @@ plus occasion, budget and optional preferences. Return ONE JSON object and nothi
 - candidates: 1-5 concrete gift ideas, each phrased as a product search term a price-comparison site would \
 understand (always German: the catalog is idealo.de), most promising first, realistic for the budget. why: the \
 part of the input the idea comes from, quoted or closely paraphrased. Respect dislikes and constraints stated in the input.
+- "[Foto] <product> (Suchbegriff: <term>)" is a product the giver photographed, named by a vision model. The \
+last "[Foto]" in the input is what the giver is asking about now: make that product the first candidate, whatever \
+came earlier in the conversation, unless the giver's words next to it say otherwise (for example "something like this, but cheaper").
 - Lines starting with "Nachtrag:" are follow-up instructions from the giver after an earlier answer (for \
 example cheaper, something completely different, the person already owns it). Apply them: adjust or replace the \
 candidates accordingly instead of repeating the earlier ones.
@@ -364,9 +370,10 @@ previous_pick.total_eur.
 keep them as candidates."""
 
 
-def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: dict) -> tuple[BaseModel, str]:
+def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: dict,
+               model: str | None = None) -> tuple[BaseModel, str]:
     """One chat completion through the Vercel AI Gateway, validated against schema, retried once on invalid JSON."""
-    model = os.environ.get("LLM_MODEL") or DEFAULT_MODEL
+    model = model or os.environ.get("LLM_MODEL") or DEFAULT_MODEL
     client = llm_client()
     for _attempt in range(2):
         started_at = datetime.now(timezone.utc).isoformat()
@@ -382,7 +389,8 @@ def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: 
         call = {
             "step": step,
             "model": model,
-            "input": [dict(m) for m in messages],
+            # a photo is logged as a placeholder, not as megabytes of base64
+            "input": [m if isinstance(m["content"], str) else {**m, "content": "[text + photo]"} for m in messages],
             "output": output,
             "started_at": started_at,
             "duration_ms": round((time.perf_counter() - t0) * 1000),
@@ -403,9 +411,43 @@ def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: 
     raise HTTPException(502, "model returned invalid JSON twice")
 
 
+class Photo(BaseModel):
+    product: str  # empty when the photo shows no recognizable product
+    search_term: str
+
+
+PHOTO_PROMPT = """The giver photographed something as a gift idea. Return ONE JSON object and nothing else:
+{"product": string, "search_term": string}
+- product: what the photo shows, as precisely as it is visible: kind of product, brand, model, colour, size. \
+Read brand and model from logos, labels and packaging; do not guess a model that is not visible.
+- search_term: the German search term a price-comparison site (idealo.de) would need to find this product.
+- If the photo shows no recognizable product, return both as empty strings."""
+
+
+def with_photo(req: RecommendRequest, trace: dict) -> RecommendRequest:
+    """Step 0, only with a photo: a vision model names the product, which then goes on as text."""
+    if not req.image_base64:
+        return req
+    mime = "image/png" if req.image_base64.startswith("iVBOR") else "image/jpeg"
+    messages = [
+        {"role": "system", "content": PHOTO_PROMPT},
+        {"role": "user", "content": [
+            {"type": "text", "text": req.input_text or "What is this?"},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{req.image_base64}"}},
+        ]},
+    ]
+    photo = call_model("photo", messages, Photo, trace, os.environ.get("LLM_VISION_MODEL") or VISION_MODEL)[0]
+    if not photo.product.strip():
+        raise HTTPException(422, "I could not recognize a product in the photo. Try another photo or describe it.")
+    trace["sources"].append({"type": "photo", "product": photo.product, "search_term": photo.search_term})
+    # one line, photo first, so it stays one message in the conversation
+    line = f"[Foto] {photo.product} (Suchbegriff: {photo.search_term})"
+    return req.model_copy(update={"image_base64": None, "input_text": " ".join(filter(None, [line, (req.input_text or "").strip()]))[:20000]})
+
+
 def understand(req: RecommendRequest, trace: dict, previous_pick: dict | None = None) -> Understood:
     """Step 1: turn free-form input into gift ideas."""
-    user = req.model_dump(exclude={"demo_case", "previous_id"}) | {"previous_pick": previous_pick}
+    user = req.model_dump(exclude={"demo_case", "previous_id", "image_base64"}) | {"previous_pick": previous_pick}
     messages = [
         {"role": "system", "content": UNDERSTAND_PROMPT},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
@@ -417,7 +459,7 @@ def decide(req: RecommendRequest, understood: Understood | None, idealo: list[di
            previous_pick: dict | None = None, follow_up: str | None = None) -> tuple[Decision, str]:
     """Step 2, the deciding call: buy, wait or alternative, from the request plus the idealo data."""
     user = {
-        "request": req.model_dump(exclude={"demo_case", "input_text", "previous_id"}),
+        "request": req.model_dump(exclude={"demo_case", "input_text", "previous_id", "image_base64"}),
         "previous_pick": previous_pick,
         "follow_up": follow_up,
         "understood": understood.model_dump() if understood else None,
@@ -439,7 +481,7 @@ def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest
         items, status = amazon.fetch(url)
     except Exception as exc:
         items, status = [], type(exc).__name__
-    trace["sources"] = [{"type": "amazon_wishlist", "url": url, "status": status, "items": items}]
+    trace["sources"].append({"type": "amazon_wishlist", "url": url, "status": status, "items": items})
     if items:
         block = "Amazon-Wunschliste der Person:\n" + "\n".join(f"- {i['title'][:160]}" + (f" ({i['price']})" if i["price"] else "") for i in items[:30])
     else:
@@ -488,8 +530,10 @@ def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict
 @app.post("/recommend")
 def recommend(req: RecommendRequest) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
+    trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
+    req = with_photo(req, trace)  # before the conversation, so the named product is part of the stored message
     req, conversation, previous_pick = continue_conversation(req)
-    trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": [], "conversation": conversation}
+    trace["conversation"] = conversation
     req = with_amazon_wishlist(req, trace)
     understood = understand(req, trace, previous_pick) if (req.input_text or "").strip() else None
     if understood:

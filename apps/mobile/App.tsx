@@ -12,13 +12,13 @@ import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
-import { AddPerson, Detail, MeScreen, People, Thread } from './src/screens';
+import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
 const BRAND = 'Wishfit';
 
-type View_ = { name: 'people' } | { name: 'me' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
+type View_ = { name: 'people' } | { name: 'me' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'snap'; id: string | null } | { name: 'detail'; result: Result; id: string | null };
 
 export default function App() {
   // On a font error the app still renders, with the system font
@@ -69,12 +69,12 @@ function Root() {
       return next;
     });
 
-  const send = async (person: Person, text: string) => {
+  const send = async (person: Person, text: string, photo?: { uri: string; base64: string }) => {
     setBusyId(person.id);
     setError(null);
-    update(person.id, (p) => ({ ...p, messages: [...p.messages, { role: 'user', text }] }));
+    update(person.id, (p) => ({ ...p, messages: [...p.messages, { role: 'user', text, photo: photo?.uri }] }));
     try {
-      const result = await recommend(person, text);
+      const result = await recommend(person, text, photo?.base64);
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
@@ -125,7 +125,7 @@ function Root() {
   }, [viewKey]);
   const goBack = () => {
     const target: View_ =
-      view.name === 'edit' ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' };
+      (view.name === 'edit' || view.name === 'snap') && view.id ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' };
     Animated.timing(x, { toValue: WIDTH, duration: 200, useNativeDriver: true }).start(() => {
       leaving.current = true;
       setView(target);
@@ -174,9 +174,22 @@ function Root() {
           error={error?.id === person.id ? error.text : null}
           onBack={goBack}
           onSend={(text) => send(person, text)}
+          onSnap={() => setView({ name: 'snap', id: person.id })}
           onPin={(item, resultId) => pin(person.id, item, resultId)}
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
           onEdit={() => setView({ name: 'edit', id: person.id })}
+        />
+      ) : view.name === 'snap' ? (
+        <Snap
+          person={person}
+          people={people}
+          onBack={goBack}
+          onDone={(photo, id) => {
+            const to = people.find((p) => p.id === id);
+            if (!to) return;
+            setView({ name: 'thread', id });
+            send(to, 'What about this?', photo);
+          }}
         />
       ) : view.name === 'detail' ? (
         <Detail
@@ -187,7 +200,7 @@ function Root() {
           onPin={person ? (item, resultId) => pin(person.id, item, resultId) : undefined}
         />
       ) : (
-        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} />
+        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} onSnap={() => setView({ name: 'snap', id: null })} />
       )}
       </Animated.View>
       {view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}

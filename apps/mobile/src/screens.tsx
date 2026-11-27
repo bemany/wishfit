@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -51,12 +53,13 @@ function Wiggle({ style, children }: { style?: StyleProp<ViewStyle>; children: R
 }
 
 // 1 People: the stack of tags
-export function People({ brand, people, onOpen, onAdd, onMe }: { brand: string; people: Person[]; onOpen: (p: Person) => void; onAdd: () => void; onMe: () => void }) {
+export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: string; people: Person[]; onOpen: (p: Person) => void; onAdd: () => void; onMe: () => void; onSnap: () => void }) {
   const insets = useSafeAreaInsets();
   return (
     <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
       <TopBar left={<Text style={s.word}>{brand.toLowerCase()}</Text>} right={
           <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Round icon="camera" label="Snap a product" onPress={onSnap} />
             <Round icon="me" label="Me" onPress={onMe} />
             <Round icon="plus" label="Add someone" ink onPress={onAdd} />
           </View>
@@ -515,6 +518,7 @@ export function Thread({
   error,
   onBack,
   onSend,
+  onSnap,
   onOpen,
   onEdit,
   onPin,
@@ -524,6 +528,7 @@ export function Thread({
   error: string | null;
   onBack: () => void;
   onSend: (text: string) => void;
+  onSnap: () => void;
   onOpen: (r: Result) => void;
   onEdit: () => void;
   onPin: OnPin;
@@ -602,9 +607,10 @@ export function Thread({
         )}
         {person.messages.map((m, i) =>
           m.role === 'user' ? (
-            <Bubble key={i} note={m.text.length > 160 ? `${m.text.split('\n').length} lines` : undefined}>
-              {m.text}
-            </Bubble>
+            <View key={i} style={{ gap: 8 }}>
+              {m.photo && <Image source={{ uri: m.photo }} accessibilityLabel="Your photo" style={{ alignSelf: 'flex-end', width: 160, height: 160, borderRadius: 20, borderWidth: 2, borderColor: C.ink }} />}
+              <Bubble note={m.text.length > 160 ? `${m.text.split('\n').length} lines` : undefined}>{m.text}</Bubble>
+            </View>
           ) : (
             <View key={i} style={{ gap: 16 }} onLayout={(e) => i === person.messages.length - 1 && scroll.current?.scrollTo({ y: e.nativeEvent.layout.y - 12, animated: true })}>
               <Turn person={person} result={m.result} onOpen={() => onOpen(m.result)} onPin={onPin} />
@@ -641,11 +647,96 @@ export function Thread({
             placeholderTextColor={C.mute}
             style={s.input}
           />
+          {!busy && <Round icon="camera" label="Snap a product" size={52} onPress={onSnap} />}
           {speechAvailable() && <Round icon="mic" label={session ? 'Stop dictation' : 'Dictate'} size={52} fill={session ? C.tomato : undefined} onPress={toggleMic} />}
           <Round icon="send" label="Send" ink size={52} onPress={() => send()} />
         </View>
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+export type Photo = { uri: string; base64: string };
+
+// 7 Snap a product: the camera inside the app, or a photo from the library. Opened from a chat the photo goes to
+// that person; opened from People, 8 "which tag?" asks whose it is.
+// ponytail: sent at quality 0.4 without resizing (about 1 MB); resize with expo-image-manipulator if uploads get slow
+export function Snap({ person, people, onBack, onDone }: { person: Person | null; people: Person[]; onBack: () => void; onDone: (photo: Photo, personId: string) => void }) {
+  const insets = useSafeAreaInsets();
+  const camera = useRef<React.ComponentRef<typeof CameraView>>(null);
+  const [permission, ask] = useCameraPermissions();
+  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) ask();
+  }, [permission?.status]);
+
+  const got = (p: { uri: string; base64?: string | null } | null | undefined) => {
+    if (!p?.base64) return;
+    const shot = { uri: p.uri, base64: p.base64 };
+    if (person) onDone(shot, person.id);
+    else setPhoto(shot);
+  };
+  const shoot = () =>
+    camera.current
+      ?.takePictureAsync({ base64: true, quality: 0.4 })
+      .then(got)
+      .catch((e) => setNote(`The photo did not work: ${e?.message ?? e}`));
+  const upload = () =>
+    ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, base64: true })
+      .then((r) => got(r.assets?.[0]))
+      .catch((e) => setNote(`The photo did not open: ${e?.message ?? e}`));
+
+  if (photo)
+    return (
+      <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
+        <TopBar onBack={() => setPhoto(null)} title="From your photo" />
+        <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-end' }}>
+          <Image source={{ uri: photo.uri }} accessibilityLabel="Your photo" style={{ width: 104, height: 132, borderRadius: 18, borderWidth: 2, borderColor: C.ink, transform: [{ rotate: '-3deg' }] }} />
+          <Say style={{ flex: 1 }}>Got it. Whose tag does it go on?</Say>
+        </View>
+        {people.length === 0 && <Body>There is no tag yet. Add someone first, then snap again.</Body>}
+        {people.map((p) => (
+          <Tag key={p.id} color={p.color} label={`Add to ${p.name}'s tag`} onPress={() => onDone(photo, p.id)} style={{ gap: 4 }}>
+            <Name>{p.name}</Name>
+            <Mono>{metaOf(p)}</Mono>
+          </Tag>
+        ))}
+        <Btn secondary label="Not it, try again" onPress={() => setPhoto(null)} />
+      </ScrollView>
+    );
+
+  return (
+    <View style={[pad, { flex: 1, gap: 16, paddingBottom: insets.bottom + 16 }]}>
+      <TopBar onBack={onBack} title={person ? `Snap for ${person.name}` : 'Snap'} />
+      <Text style={s.display}>Seen something good?</Text>
+      <View style={{ flex: 1, borderWidth: 2, borderColor: C.ink, borderRadius: 28, backgroundColor: C.ink, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+        {permission?.granted && <CameraView ref={camera} facing="back" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />}
+        {/* the four lemon corners of the viewfinder */}
+        {(['Top', 'Bottom'] as const).flatMap((v) =>
+          (['Left', 'Right'] as const).map((h) => (
+            <View key={v + h} pointerEvents="none" style={{ position: 'absolute', [v.toLowerCase()]: 28, [h.toLowerCase()]: 28, width: 44, height: 44, borderColor: C.lemon, [`border${v}Width`]: 3, [`border${h}Width`]: 3 }} />
+          )),
+        )}
+        {permission?.granted ? (
+          <Text style={[s.say, { color: '#fff', textAlign: 'center', paddingHorizontal: 48, fontSize: 22, lineHeight: 26, opacity: 0.9 }]}>Point at a product, a shop window or a screenshot.</Text>
+        ) : (
+          <Pressable accessibilityRole="button" onPress={() => (permission?.canAskAgain ? ask() : Linking.openSettings())} style={{ padding: 40 }}>
+            <Text style={[s.say, { color: '#fff', textAlign: 'center', fontSize: 22, lineHeight: 26 }]}>The camera is off for Wishfit. Tap to allow it, or upload a photo.</Text>
+          </Pressable>
+        )}
+      </View>
+      {note && <Mono>{note}</Mono>}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flex: 1, alignItems: 'flex-start' }}>
+          <Pill large label="Upload photo" onPress={upload} />
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Take photo" disabled={!permission?.granted} onPress={shoot} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 2, borderColor: C.ink, backgroundColor: C.lemon, alignItems: 'center', justifyContent: 'center', opacity: permission?.granted ? 1 : 0.4 }}>
+          <View style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper }} />
+        </Pressable>
+        <View style={{ flex: 1 }} />
+      </View>
+    </View>
   );
 }
 
