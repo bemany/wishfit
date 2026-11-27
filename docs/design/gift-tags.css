@@ -1,0 +1,45 @@
+/* Wishfit "gift tag" direction: white ground, black ink, one saturated colour per person,
+   every person and every pick is a hang tag, idealo signals are rubber stamps. */
+.t{--ink:#0b0b0c;--paper:#ffffff;--mute:#5f5f66;--line:#0b0b0c;
+ --tomato:#ff5a3c;--lemon:#ffd23f;--mint:#7fd6a8;--lilac:#c9a7ff;--sky:#8fd3ff;
+ background:var(--paper);color:var(--ink);font-family:"Instrument Sans",-apple-system,system-ui,sans-serif;font-size:16px;line-height:22px;box-sizing:border-box;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+.t *{box-sizing:border-box}
+.t a{color:inherit;text-decoration:none}
+.t-word{font:800 26px/28px "Bricolage Grotesque",sans-serif;letter-spacing:-.04em}
+.t-display{margin:0;font:800 44px/42px "Bricolage Grotesque",sans-serif;letter-spacing:-.045em}
+.t-mono{font:500 12px/16px "DM Mono",ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase}
+.t-mute{color:var(--mute)}
+.t-top{display:flex;align-items:center;justify-content:space-between;min-height:44px}
+.t-round{width:44px;height:44px;border-radius:999px;border:2px solid var(--ink);background:var(--paper);display:grid;place-items:center;flex:none}
+.t-round svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.t-round--ink{background:var(--ink);color:#fff}
+/* the hang tag */
+.t-tag{position:relative;display:flex;flex-direction:column;gap:10px;padding:44px 20px 20px;border-radius:28px;background:var(--c,var(--lemon));color:var(--ink);border:2px solid var(--ink)}
+.t-tag::before{content:"";position:absolute;top:14px;left:50%;width:16px;height:16px;margin-left:-8px;border-radius:999px;background:var(--paper);border:2px solid var(--ink)}
+.t-tag--stack{margin-top:-64px;padding-bottom:84px;box-shadow:0 -6px 0 rgba(11,11,12,.06)}
+.t-tag--stack:first-of-type{margin-top:0}
+.t-tag--stack:last-of-type{padding-bottom:22px}
+.t-name{font:800 40px/38px "Bricolage Grotesque",sans-serif;letter-spacing:-.045em}
+.t-price{font:800 64px/58px "Bricolage Grotesque",sans-serif;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.t-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+/* rubber stamps for the idealo signals */
+.t-stamps{display:flex;flex-wrap:wrap;gap:10px 8px;padding:4px 0}
+.t-stamp{display:inline-flex;flex-direction:column;gap:1px;padding:7px 10px 6px;border:2px solid currentColor;border-radius:8px;font:500 11px/14px "DM Mono",ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;transform:rotate(var(--r,-2deg))}
+.t-stamp b{font:800 16px/18px "Bricolage Grotesque",sans-serif;letter-spacing:-.02em;text-transform:none}
+.t-pill{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:999px;border:2px solid var(--ink);font-weight:600;font-size:14px;white-space:nowrap;background:var(--paper)}
+.t-pill--lg{min-height:44px;padding:0 16px;font-size:15px}
+.t-btn{display:flex;align-items:center;justify-content:center;min-height:56px;padding:0 22px;border-radius:999px;background:var(--ink);color:#fff !important;font:700 17px/1 "Instrument Sans",sans-serif;border:0}
+.t-bubble{align-self:flex-end;max-width:84%;padding:12px 16px;border-radius:22px 22px 4px 22px;background:var(--ink);color:#fff}
+.t-say{align-self:flex-start;max-width:88%;font:800 26px/28px "Bricolage Grotesque",sans-serif;letter-spacing:-.035em}
+.t-line{display:flex;align-items:center;gap:12px;padding:14px 0;border-top:2px solid var(--ink)}
+.t-line b{font:800 20px/22px "Bricolage Grotesque",sans-serif;letter-spacing:-.03em}
+.t-dot{flex:none;width:18px;height:18px;border-radius:999px;border:2px solid var(--ink);background:var(--c,var(--mint))}
+.t-input{flex:1;min-width:0;min-height:52px;padding:0 18px;border-radius:999px;border:2px solid var(--ink);background:var(--paper);font:400 16px/1 "Instrument Sans",sans-serif;color:var(--ink)}
+.t-input::placeholder{color:var(--mute)}
+.t-bar{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding-top:14px}
+
+/* floating tab bar: People, Snap, Me */
+.t-tabs{align-self:center;display:flex;gap:4px;padding:4px;border:2px solid var(--ink);border-radius:999px;background:var(--paper)}
+.t-tab{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:999px;font-weight:700;font-size:15px}
+.t-tab svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.t-tab--on{background:var(--ink);color:#fff !important}
