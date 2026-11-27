@@ -6,7 +6,7 @@
 ## 2. Agent-Backend
 
 - [x] 2.1 FastAPI-App mit `/recommend`, `/results/{id}`, `/trace/{id}`, `/health`
-- [x] 2.2 Nebius-Call entscheidet, Ausgabe als JSON nach Vertrag, Trace je Call
+- [x] 2.2 Modell-Call (Vercel AI Gateway, vorher Nebius geplant) entscheidet, Ausgabe als JSON nach Vertrag, Trace je Call
 - [x] 2.3 Zwei Demo-Fälle mit gespeichertem idealo-Snapshot
 - [ ] 2.4 idealo-MCP-Client (wartet auf Endpunkt und Tool-Liste)
 - [x] 2.5 Speicher: Neon Postgres, ohne `DATABASE_URL` im Arbeitsspeicher

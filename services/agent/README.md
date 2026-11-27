@@ -7,26 +7,26 @@ FastAPI backend implementing `docs/api.md`: `POST /recommend`, `GET /results/{id
 
 ```bash
 cd services/agent
-cp .env.example .env        # fill in NEBIUS_API_KEY and NEBIUS_MODEL
+cp .env.example .env        # fill in AI_GATEWAY_API_KEY
 uv run uvicorn main:app --reload --port 8000
 curl -s localhost:8000/recommend -H 'content-type: application/json' -d @examples/simple.request.json
 ```
 
-Self-check (Nebius client stubbed, no key needed): `uv run python selfcheck.py`
+Self-check (model client stubbed, no key needed): `uv run python selfcheck.py`
 
 ## Env
 
 | Variable | Purpose |
 |---|---|
-| `NEBIUS_API_KEY` | Token Factory key. Missing: `/recommend` answers 502. |
-| `NEBIUS_BASE_URL` | OpenAI-compatible endpoint, see `.env.example`. |
-| `NEBIUS_MODEL` | Model that decides. Missing: 502. |
+| `AI_GATEWAY_API_KEY` | Vercel AI Gateway key for local runs. On Vercel the OIDC token is used instead. Neither set: `/recommend` answers 502. |
+| `LLM_BASE_URL`, `LLM_API_KEY` | Optional: another OpenAI-compatible endpoint instead of the gateway. |
+| `LLM_MODEL` | Model that decides. Default `anthropic/claude-sonnet-5.5`. |
 | `DATABASE_URL` | Postgres (table `results`, created if missing). Empty: in-memory dict. |
 | `IDEALO_MCP_URL`, `IDEALO_MCP_TOKEN` | idealo MCP, so far only used by `list_idealo_tools.py`. |
 
-## Where the model decides (Nebius note)
+## Where the model decides
 
-`main.py`, function `decide()`: one chat completion on the Nebius Token Factory through the `openai` SDK.
+`main.py`, function `decide()`: one chat completion through the Vercel AI Gateway with the `openai` SDK.
 The model gets the request plus all idealo data per wish and returns the decision as JSON (top
 recommendation, alternatives, action buy/wait/alternative, signals, or `needs_clarification` with reasons
 and a follow-up question). The output is validated with pydantic, `total_eur` is computed in code, invalid

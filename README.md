@@ -10,7 +10,7 @@ Geschenk plus 2–3 Alternativen, jeweils mit Begründung.
 
 | Pfad | Inhalt |
 |---|---|
-| `services/agent` | Backend-Agent: Nebius Token Factory entscheidet, idealo-MCP liefert die Daten |
+| `services/agent` | Backend-Agent: ein Modell über das Vercel AI Gateway entscheidet, idealo-MCP liefert die Daten |
 | `apps/web` | Landingpage: Schenkender (Name, Budget, Anlass), Beschenkter (Wunschliste), Ergebnis |
 | `apps/mobile` | Expo-App (React Native, interner TestFlight-Build, OTA über EAS Update), zeigt dieselben Ergebnisse |
 | `docs/api.md` | API-Vertrag des Agent-Backends, Beispiele in `services/agent/examples` |

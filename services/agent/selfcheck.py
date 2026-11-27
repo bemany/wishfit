@@ -1,4 +1,4 @@
-"""Self-check: both demo requests through the app with the Nebius client stubbed.
+"""Self-check: both demo requests through the app with the model client stubbed.
 
 Run: uv run python selfcheck.py
 """
@@ -14,7 +14,7 @@ import main
 
 EXAMPLES = Path(__file__).parent / "examples"
 os.environ.pop("DATABASE_URL", None)  # always in-memory here
-os.environ["NEBIUS_MODEL"] = "stub-model"
+os.environ["LLM_MODEL"] = "stub-model"
 
 
 def example(name: str) -> dict:
@@ -31,7 +31,7 @@ def stub(*outputs: str):
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=queue.pop(0)))], usage=usage)
 
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    main.nebius_client = lambda: client
+    main.llm_client = lambda: client
 
 
 def decision(sample: str) -> dict:
@@ -40,10 +40,11 @@ def decision(sample: str) -> dict:
 
 api = TestClient(main.app)
 
-# missing key: clean 502, no crash (real nebius_client, before it gets stubbed)
-os.environ["NEBIUS_API_KEY"] = ""
+# missing key: clean 502, no crash (real llm_client, before it gets stubbed)
+for _k in ("LLM_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"):
+    os.environ[_k] = ""
 r = api.post("/recommend", json=example("simple.request.json"))
-assert r.status_code == 502 and r.json() == {"detail": "NEBIUS_API_KEY is not configured"}
+assert r.status_code == 502 and r.json() == {"detail": "AI_GATEWAY_API_KEY is not configured"}
 
 assert api.get("/health").json() == {"ok": True}
 

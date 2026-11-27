@@ -134,7 +134,7 @@ def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
     return snapshot["wishes"]
 
 
-# --- the deciding model call (Nebius Token Factory) ------------------------
+# --- the deciding model call (Vercel AI Gateway) ----------------------------
 
 SYSTEM_PROMPT = """You are Wishloop, a gift-buying agent. You get a gift request (wishes, total budget \
 including shipping, occasion, recipient, preferences) and idealo data for every wish (products, offers per \
@@ -176,19 +176,23 @@ resolve the most important ambiguity. Alternatives may be empty then.
 reason 1-3 sentences."""
 
 
-def nebius_client() -> OpenAI:
-    key = os.environ.get("NEBIUS_API_KEY")
+GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
+DEFAULT_MODEL = "anthropic/claude-sonnet-5.5"
+
+
+def llm_client() -> OpenAI:
+    """OpenAI-compatible client. Default: Vercel AI Gateway (API key locally, OIDC token on Vercel).
+    LLM_BASE_URL + LLM_API_KEY point it at any other OpenAI-compatible endpoint, e.g. Nebius Token Factory."""
+    key = os.environ.get("LLM_API_KEY") or os.environ.get("AI_GATEWAY_API_KEY") or os.environ.get("VERCEL_OIDC_TOKEN")
     if not key:
-        raise HTTPException(502, "NEBIUS_API_KEY is not configured")
-    return OpenAI(api_key=key, base_url=os.environ.get("NEBIUS_BASE_URL") or None, timeout=60)
+        raise HTTPException(502, "AI_GATEWAY_API_KEY is not configured")
+    return OpenAI(api_key=key, base_url=os.environ.get("LLM_BASE_URL") or GATEWAY_URL, timeout=60)
 
 
 def decide(req: RecommendRequest, idealo: list[dict], trace: dict) -> tuple[Decision, str]:
-    """The deciding call: one chat completion on the Nebius Token Factory (retried once on invalid JSON)."""
-    model = os.environ.get("NEBIUS_MODEL")
-    if not model:
-        raise HTTPException(502, "NEBIUS_MODEL is not configured")
-    client = nebius_client()
+    """The deciding call: one chat completion through the Vercel AI Gateway (retried once on invalid JSON)."""
+    model = os.environ.get("LLM_MODEL") or DEFAULT_MODEL
+    client = llm_client()
     user = {"request": req.model_dump(exclude={"demo_case"}), "idealo_data": idealo}
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -199,10 +203,10 @@ def decide(req: RecommendRequest, idealo: list[dict], trace: dict) -> tuple[Deci
         t0 = time.perf_counter()
         try:
             completion = client.chat.completions.create(
-                model=model, messages=messages, temperature=0.2, response_format={"type": "json_object"}
+                model=model, messages=messages, response_format={"type": "json_object"}
             )
         except OpenAIError as exc:
-            raise HTTPException(502, f"Nebius model call failed: {type(exc).__name__}") from exc
+            raise HTTPException(502, f"Model call failed: {type(exc).__name__}") from exc
         output = completion.choices[0].message.content or ""
         usage = completion.usage
         call = {

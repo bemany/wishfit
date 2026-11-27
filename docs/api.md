@@ -26,7 +26,7 @@ Response (`sample.response.json`, `sample.clarification.response.json`):
 | `top` | Recommendation \| null | null when `needs_clarification` |
 | `alternatives` | Recommendation[] | 2-3 entries, may be empty when `needs_clarification` |
 | `uncertainty` | `{reasons: string[], question: string}` \| null | set when data is missing or contradictory |
-| `model` | string | Nebius model that made the decision |
+| `model` | string | model that made the decision, e.g. `anthropic/claude-sonnet-5.5` |
 | `trace_url` | string | relative path |
 | `created_at` | ISO 8601 string | |
 
