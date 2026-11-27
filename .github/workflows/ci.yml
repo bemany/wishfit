@@ -38,7 +38,10 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      # @heroui-pro/react downloads its build in postinstall and needs a HeroUI CI token.
       - run: npm ci
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
       - run: npm run lint
       - run: npm run build
 

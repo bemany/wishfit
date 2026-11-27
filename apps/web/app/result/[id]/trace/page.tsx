@@ -1,11 +1,13 @@
 "use client";
 
+import { Alert, Card, Chip, Skeleton } from "@heroui/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getTrace, type Trace } from "@/lib/api";
 
-const pre = "overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-stone-900 p-3 font-mono text-xs text-stone-100";
+const pre = "num overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-surface-secondary p-3 text-xs";
+const label = "text-sm font-medium";
 const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
 
 export default function TracePage() {
@@ -18,57 +20,79 @@ export default function TracePage() {
   }, [id]);
 
   return (
-    <>
-      <Link href={`/result/${id}`} className="text-sm text-accent underline">← Zurück zum Ergebnis</Link>
-      <h1 className="text-3xl font-bold leading-tight">Trace</h1>
-      {error && <p className="error">{error}</p>}
-      {!trace && !error && <p className="text-stone-500" role="status">Trace wird geladen …</p>}
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+      <Link href={`/result/${id}`} className="text-sm text-accent underline">
+        ← Zurück zum Ergebnis
+      </Link>
+      <h1 className="text-3xl font-semibold leading-tight tracking-tight">Trace</h1>
+      {error && (
+        <Alert status="danger">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Title>{error}</Alert.Title>
+          </Alert.Content>
+        </Alert>
+      )}
+      {!trace && !error && (
+        <div className="flex flex-col gap-3" role="status" aria-label="Trace wird geladen">
+          <Skeleton className="h-6 w-1/2 rounded-lg" />
+          <Skeleton className="h-40 w-full rounded-2xl" />
+        </div>
+      )}
 
       {trace && (
         <>
-          <h2 className="text-xl font-semibold">Modell-Aufrufe ({trace.model_calls.length})</h2>
+          <h2 className="text-xl font-semibold tracking-tight">Modell-Aufrufe ({trace.model_calls.length})</h2>
           {trace.model_calls.map((c, i) => (
-            <section key={i} className="card flex flex-col gap-2">
-              <p className="font-mono text-sm font-semibold">{c.model}</p>
-              <p className="text-xs text-stone-500">
-                {c.duration_ms != null && `${c.duration_ms} ms`}
-                {c.usage && ` · ${c.usage.prompt_tokens ?? "?"} Prompt-Tokens · ${c.usage.completion_tokens ?? "?"} Antwort-Tokens`}
-                {c.started_at && ` · ${new Date(c.started_at).toLocaleString("de-DE")}`}
-              </p>
-              <p className="label">Eingabe</p>
-              {c.input.map((m, j) => (
-                <div key={j}>
-                  <p className="text-xs font-semibold uppercase text-stone-500">{m.role}</p>
-                  <pre className={pre}>{json(m.content)}</pre>
-                </div>
-              ))}
-              <p className="label">Ausgabe</p>
-              <pre className={pre}>{json(c.output)}</pre>
-            </section>
+            <Card key={i}>
+              <Card.Header>
+                <Card.Title className="num">{c.model}</Card.Title>
+                <Card.Description className="num text-xs">
+                  {c.duration_ms != null && `${c.duration_ms} ms`}
+                  {c.usage &&
+                    ` · ${c.usage.prompt_tokens ?? "?"} Prompt-Tokens · ${c.usage.completion_tokens ?? "?"} Antwort-Tokens`}
+                  {c.started_at && ` · ${new Date(c.started_at).toLocaleString("de-DE")}`}
+                </Card.Description>
+              </Card.Header>
+              <Card.Content className="flex flex-col gap-2">
+                <p className={label}>Eingabe</p>
+                {c.input.map((m, j) => (
+                  <div key={j} className="flex flex-col gap-1">
+                    <p className="text-xs text-muted">{m.role}</p>
+                    <pre className={pre}>{json(m.content)}</pre>
+                  </div>
+                ))}
+                <p className={label}>Ausgabe</p>
+                <pre className={pre}>{json(c.output)}</pre>
+              </Card.Content>
+            </Card>
           ))}
 
-          <h2 className="text-xl font-semibold">idealo-Aufrufe ({trace.idealo_calls.length})</h2>
+          <h2 className="text-xl font-semibold tracking-tight">idealo-Aufrufe ({trace.idealo_calls.length})</h2>
           {trace.idealo_calls.map((c, i) => (
-            <section key={i} className="card flex flex-col gap-2">
-              <p className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm font-semibold">{c.tool}</span>
+            <Card key={i}>
+              <Card.Header className="flex-row flex-wrap items-center gap-2">
+                <Card.Title className="num">{c.tool}</Card.Title>
                 {c.source && (
-                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs">
+                  <Chip color={c.source === "live" ? "success" : "default"} size="sm" variant="soft">
                     {c.source === "live" ? "live" : "Snapshot"}
-                  </span>
+                  </Chip>
                 )}
-                {c.duration_ms != null && <span className="text-xs text-stone-500">{c.duration_ms} ms</span>}
-              </p>
-              <p className="label">Argumente</p>
-              <pre className={pre}>{json(c.arguments)}</pre>
-              <details>
-                <summary className="cursor-pointer text-sm font-medium">Ergebnis anzeigen</summary>
-                <pre className={`${pre} mt-2`}>{json(c.result)}</pre>
-              </details>
-            </section>
+                {c.duration_ms != null && <span className="num text-xs text-muted">{c.duration_ms} ms</span>}
+              </Card.Header>
+              <Card.Content className="flex flex-col gap-2">
+                <p className={label}>Argumente</p>
+                <pre className={pre}>{json(c.arguments)}</pre>
+                {/* ponytail: native <details>, the result payload can be large and is rarely needed */}
+                <details>
+                  <summary className="cursor-pointer text-sm font-medium">Ergebnis anzeigen</summary>
+                  <pre className={`${pre} mt-2`}>{json(c.result)}</pre>
+                </details>
+              </Card.Content>
+            </Card>
           ))}
         </>
       )}
-    </>
+    </div>
   );
 }

@@ -1,11 +1,21 @@
 "use client";
 
-import Link from "next/link";
+import { Alert, Button, Card, Description, Input, Label, Skeleton, Spinner, TextArea, TextField } from "@heroui/react";
+import { TextShimmer } from "@heroui-pro/react/text-shimmer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { recommend } from "@/lib/api";
+import { BRAND } from "@/lib/brand";
+import { ButtonLink } from "../ui";
 
 const MAX_WISHES = 10;
+
+const AGENT_STEPS = [
+  "Wünsche lesen",
+  "Produkte bei idealo finden",
+  "Preisverlauf und Verfügbarkeit prüfen",
+  "Modell entscheidet: kaufen, warten oder Alternative",
+];
 
 export default function WishPage() {
   const router = useRouter();
@@ -22,10 +32,18 @@ export default function WishPage() {
 
   if (!occasion || !(budget > 0)) {
     return (
-      <>
-        <p className="error">Dieser Link ist unvollständig. Bitte lass dir einen neuen Link schicken.</p>
-        <Link href="/" className="btn-ghost">Zur Startseite</Link>
-      </>
+      <div className="mx-auto flex w-full max-w-xl flex-col items-start gap-4">
+        <Alert status="danger">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Title>Dieser Link ist unvollständig</Alert.Title>
+            <Alert.Description>Bitte lass dir einen neuen Link schicken.</Alert.Description>
+          </Alert.Content>
+        </Alert>
+        <ButtonLink href="/" variant="outline">
+          Zur Startseite
+        </ButtonLink>
+      </div>
     );
   }
 
@@ -59,87 +77,134 @@ export default function WishPage() {
 
   if (loading) {
     return (
-      <section className="card flex flex-col items-center gap-4 py-10 text-center" role="status">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent-soft border-t-accent" />
-        <h1 className="text-xl font-semibold">Der Agent prüft deine Wünsche …</h1>
-        <p className="text-stone-600">
-          Er holt Preise, Preisverlauf und Verfügbarkeit von idealo und entscheidet dann. Das dauert etwa 10 bis 30
-          Sekunden. Bitte lass die Seite offen.
-        </p>
+      <section className="mx-auto flex w-full max-w-xl flex-col gap-6" role="status">
+        <div className="flex items-center gap-3">
+          <Spinner />
+          <h1 className="text-2xl font-semibold tracking-tight">
+            <TextShimmer>Der Agent prüft deine Wünsche …</TextShimmer>
+          </h1>
+        </div>
+        <p className="text-muted">Das dauert etwa 10 bis 30 Sekunden. Bitte lass die Seite offen.</p>
+        <ol className="flex list-decimal flex-col gap-2 pl-5 text-muted">
+          {AGENT_STEPS.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ol>
+        <Card aria-hidden>
+          <Skeleton className="h-6 w-24 rounded-lg" />
+          <Skeleton className="h-5 w-3/4 rounded-lg" />
+          <Skeleton className="h-8 w-1/3 rounded-lg" />
+        </Card>
       </section>
     );
   }
 
   return (
-    <>
-      <header>
-        <h1 className="text-3xl font-bold leading-tight">Hallo{name ? ` ${name}` : ""}!</h1>
-        <p className="mt-2 text-stone-600">
-          Jemand möchte dir etwas schenken – Anlass: <strong className="text-stone-900">{occasion}</strong>. Trag
-          ein, was du dir wünschst. Unser Agent sucht daraus das beste Geschenk heraus.
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+      <header className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight">
+          Hallo{name ? ` ${name}` : ""}, was wünschst du dir?
+        </h1>
+        <p className="text-muted">
+          Anlass: <strong className="font-medium text-foreground">{occasion}</strong>. Jemand möchte dir etwas
+          schenken, das du wirklich haben willst. Trag ein paar Wünsche ein. Welcher es wird, bleibt eine
+          Überraschung.
         </p>
       </header>
 
-      <section className="card flex flex-col gap-4">
-        <div>
-          <label className="label" htmlFor="wish">
-            Deine Wünsche ({wishes.length}/{MAX_WISHES})
-          </label>
-          <div className="flex gap-2">
-            <input
-              className="input"
-              id="wish"
-              value={draft}
-              maxLength={200}
-              placeholder="z. B. Powerbank von Anker"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addWish();
-                }
-              }}
-            />
-            <button className="btn-ghost shrink-0" type="button" onClick={addWish} disabled={!draft.trim() || wishes.length >= MAX_WISHES}>
+      <Card>
+        <Card.Content className="flex flex-col gap-5">
+          <div className="flex items-end gap-2">
+            <TextField fullWidth variant="secondary" value={draft} onChange={setDraft}>
+              <Label>
+                Deine Wünsche ({wishes.length}/{MAX_WISHES})
+              </Label>
+              <Input
+                maxLength={200}
+                placeholder="Produktname oder Beschreibung"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addWish();
+                  }
+                }}
+              />
+            </TextField>
+            <Button
+              className="shrink-0"
+              variant="outline"
+              isDisabled={!draft.trim() || wishes.length >= MAX_WISHES}
+              onPress={addWish}
+            >
               Hinzufügen
-            </button>
+            </Button>
           </div>
-        </div>
 
-        {wishes.length > 0 && (
-          <ul className="flex flex-col gap-2">
-            {wishes.map((wish, i) => (
-              <li key={i} className="flex items-center justify-between gap-3 rounded-xl bg-accent-soft px-3 py-2">
-                <span className="break-words">{wish}</span>
-                <button
-                  type="button"
-                  className="shrink-0 text-sm text-stone-600 underline"
-                  aria-label={`Wunsch „${wish}“ entfernen`}
-                  onClick={() => setWishes(wishes.filter((_, j) => j !== i))}
+          {wishes.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {wishes.map((wish, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between gap-3 rounded-xl bg-surface-secondary py-1.5 pl-3 pr-1.5"
                 >
-                  Entfernen
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                  <span className="min-w-0 break-words">{wish}</span>
+                  <Button
+                    className="shrink-0"
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Wunsch „${wish}“ entfernen`}
+                    onPress={() => setWishes(wishes.filter((_, j) => j !== i))}
+                  >
+                    Entfernen
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-sm text-muted">
+            Ein genauer Produktname hilft. Eine Beschreibung reicht auch, dann fragt der Agent bei Bedarf nach.
+          </p>
 
-        <div>
-          <label className="label" htmlFor="preferences">Vorlieben (optional)</label>
-          <textarea
-            className="input"
-            id="preferences"
-            rows={2}
-            maxLength={500}
-            value={preferences}
-            placeholder="Marke, Farbe, was du gern machst …"
-            onChange={(e) => setPreferences(e.target.value)}
-          />
-        </div>
+          <TextField fullWidth variant="secondary" value={preferences} onChange={setPreferences}>
+            <Label>Was du magst (optional)</Label>
+            <TextArea maxLength={500} placeholder="z. B. Lieblingsfarbe, Marke, Hobby" rows={2} />
+            <Description>Hilft bei der Auswahl von Alternativen.</Description>
+          </TextField>
 
-        {error && <p className="error">{error}</p>}
-        <button className="btn" type="button" onClick={submit}>Wünsche abschicken</button>
+          {error && (
+            <Alert status="danger">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Title>{error}</Alert.Title>
+              </Alert.Content>
+            </Alert>
+          )}
+        </Card.Content>
+        <Card.Footer className="mt-4 flex flex-col gap-2">
+          <Button fullWidth onPress={submit}>
+            Wünsche abschicken
+          </Button>
+          <p className="text-center text-sm text-muted">Ohne Anmeldung.</p>
+        </Card.Footer>
+      </Card>
+
+      <section className="flex flex-col gap-1 text-sm text-muted">
+        <h2 className="font-medium text-foreground">Was danach passiert</h2>
+        <p>{BRAND} prüft Preise, Preisverlauf und Verfügbarkeit bei idealo.</p>
+        <p>Die schenkende Person bekommt eine Empfehlung, die ins Budget passt.</p>
       </section>
-    </>
+
+      <Card variant="secondary">
+        <Card.Header>
+          <Card.Title>Du willst auch jemandem etwas schenken?</Card.Title>
+          <Card.Description>Erstell deinen eigenen Link in einer Minute.</Card.Description>
+        </Card.Header>
+        <Card.Footer>
+          <ButtonLink href="/" variant="outline">
+            Jetzt selbst jemanden beschenken
+          </ButtonLink>
+        </Card.Footer>
+      </Card>
+    </div>
   );
 }
