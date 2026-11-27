@@ -13,10 +13,10 @@
 
 ## 3. Web
 
-- [ ] 3.1 Seite Schenkender: Name, Budget, Anlass, teilbarer Link
-- [ ] 3.2 Seite Beschenkter: Wunschliste eintragen, Agent aufrufen
-- [ ] 3.3 Ergebnisseite mit Begründung, Preis inklusive Versand, Datensignalen, Rückfrage
-- [ ] 3.4 Button "Jetzt selbst jemanden beschenken"
+- [x] 3.1 Seite Schenkender: Name, Budget, Anlass, teilbarer Link
+- [x] 3.2 Seite Beschenkter: Wunschliste eintragen, Agent aufrufen
+- [x] 3.3 Ergebnisseite mit Begründung, Preis inklusive Versand, Datensignalen, Rückfrage
+- [x] 3.4 Button "Jetzt selbst jemanden beschenken"
 
 ## 4. Mobile
 
