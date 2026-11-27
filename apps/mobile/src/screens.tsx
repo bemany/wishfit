@@ -49,12 +49,13 @@ export function People({ brand, people, onOpen, onAdd }: { brand: string; people
 }
 
 // 2 Add someone
-export function AddPerson({ onBack, onDone }: { onBack: () => void; onDone: (p: Omit<Person, 'id' | 'messages' | 'lastResultId'>) => void }) {
+// Also edits an existing tag when `initial` is given
+export function AddPerson({ initial, onBack, onDone, onDelete }: { initial?: Person; onBack: () => void; onDone: (p: Omit<Person, 'id' | 'messages' | 'lastResultId'>) => void; onDelete?: () => void }) {
   const insets = useSafeAreaInsets();
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState('');
-  const [occasion, setOccasion] = useState('');
-  const [color, setColor] = useState(TAG_COLORS[0]);
+  const [name, setName] = useState(initial?.name ?? '');
+  const [budget, setBudget] = useState(initial ? String(initial.budget) : '');
+  const [occasion, setOccasion] = useState(initial?.occasion ?? '');
+  const [color, setColor] = useState(initial?.color ?? TAG_COLORS[0]);
   const [error, setError] = useState(false);
 
   const submit = () => {
@@ -67,9 +68,9 @@ export function AddPerson({ onBack, onDone }: { onBack: () => void; onDone: (p: 
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
-        <TopBar onBack={onBack} title="Add someone" />
+        <TopBar onBack={onBack} title={initial ? `Edit ${initial.name}` : "Add someone"} />
         <Tag color={color} style={{ gap: 14 }}>
-          <Mono>New tag</Mono>
+          <Mono>{initial ? 'Edit tag' : 'New tag'}</Mono>
           <View style={{ gap: 4 }}>
             <Mono>Name</Mono>
             <TextInput accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8 }]} />
@@ -99,7 +100,12 @@ export function AddPerson({ onBack, onDone }: { onBack: () => void; onDone: (p: 
         {error && <Body>I need a name, a budget and an occasion.</Body>}
       </ScrollView>
       <View style={[pad, { paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        <Btn label="Continue" onPress={submit} />
+        <Btn label={initial ? 'Save' : 'Continue'} onPress={submit} />
+        {onDelete && (
+          <Pressable accessibilityRole="button" accessibilityLabel="Remove this tag" onPress={onDelete} style={{ alignItems: 'center', paddingVertical: 14 }}>
+            <Mono>Remove this tag</Mono>
+          </Pressable>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -208,6 +214,7 @@ export function Thread({
   onBack,
   onSend,
   onOpen,
+  onEdit,
 }: {
   person: Person;
   busy: boolean;
@@ -215,6 +222,7 @@ export function Thread({
   onBack: () => void;
   onSend: (text: string) => void;
   onOpen: (r: Result) => void;
+  onEdit: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -232,7 +240,15 @@ export function Thread({
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
       <View style={pad}>
-        <TopBar onBack={onBack} title={`${person.name} · ${metaOf(person)}`} />
+        <TopBar
+          onBack={onBack}
+          title={`${person.name} · ${metaOf(person)}`}
+          right={
+            <Pressable accessibilityRole="button" accessibilityLabel="Edit tag" onPress={onEdit} hitSlop={10} style={{ minWidth: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
+              <Mono>Edit</Mono>
+            </Pressable>
+          }
+        />
       </View>
       <ScrollView
         ref={scroll}
