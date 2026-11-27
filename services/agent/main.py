@@ -562,23 +562,72 @@ def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest
     return req.model_copy(update={"input_text": text, "wishes": [w for w in req.wishes if not amazon.find_url(w)]})
 
 
+MAX_AMAZON_LINKS = 3
+AMAZON_BUDGET_S = 6.0
+
+
 def with_amazon_link(req: RecommendRequest, trace: dict) -> RecommendRequest:
-    """Amazon short links and product links: resolve the redirect, use the product slug as the wish.
-    Without a slug the link is dropped (never handed to the model) and the trace says so."""
-    changed = {}
-    for field, texts in (("input_text", [req.input_text]), ("wishes", req.wishes)):
-        for text in texts:
-            for url in amazon.find_product_urls(text):
-                term, status = amazon.resolve_product(url)
-                trace["sources"].append({"type": "amazon_link", "url": url, "status": status, "search_term": term})
-                note = f"Amazon-Produkt (aus Link): {term}" if term else ""
-                if field == "input_text":
-                    base = changed.get("input_text", req.input_text or "")
-                    changed["input_text"] = base.replace(url, note).strip()
-                else:
-                    ws = changed.get("wishes", list(req.wishes))
-                    changed["wishes"] = [term if w == text and term else w for w in ws if not (w == text and not term)]
-    return req.model_copy(update=changed) if changed else req
+    """Amazon short links and product links in the new message: resolve the redirect (only Amazon hosts),
+    use the product slug as the wish. Without a slug the link is dropped (never handed to the model); the trace
+    keeps only resolved/rejected/failed and the ASIN. Runs before the message is stored, so follow-ups do not resolve again."""
+    deadline = time.monotonic() + AMAZON_BUDGET_S
+    done = 0
+
+    def replace(text: str) -> str:
+        nonlocal done
+        for url in amazon.find_product_urls(text):
+            if done >= MAX_AMAZON_LINKS or time.monotonic() >= deadline:
+                term, status, asin = None, "skipped", None
+            else:
+                done += 1
+                term, status, asin = amazon.resolve_product(url, max(0.5, min(5.0, deadline - time.monotonic())))
+            entry = {"type": "amazon_link", "status": status, "asin": asin, "search_term": term}
+            if status != "rejected":
+                entry["url"] = url.split("?")[0]
+            trace["sources"].append(entry)
+            text = text.replace(url, f"Amazon-Produkt (aus Link): {term}" if term else "")
+        return text.strip()
+
+    update = {}
+    if req.input_text and amazon.find_product_urls(req.input_text):
+        update["input_text"] = replace(req.input_text)
+    if any(amazon.find_product_urls(w) for w in req.wishes):
+        update["wishes"] = [w for w in (replace(w) for w in req.wishes) if w]
+    return req.model_copy(update=update) if update else req
+
+
+def enforce_budget(decision: Decision, req: RecommendRequest) -> Decision:
+    """Never trust the model on the budget: a top pick over budget is replaced by the first alternative that fits,
+    else the answer becomes a clarification. Unknown shipping is always named."""
+    de = req.language != "en"
+    if decision.status != "recommendation" or decision.top is None:
+        return decision
+
+    def total(rec: Recommendation) -> float | None:
+        return None if rec.price_eur is None else rec.price_eur + (rec.shipping_eur or 0)
+
+    def fits(rec: Recommendation) -> bool:
+        t = total(rec)
+        return t is None or req.budget_eur is None or t <= req.budget_eur
+
+    def name_shipping(rec: Recommendation) -> None:
+        text = (rec.reason + " " + " ".join(f"{s.label} {s.value}" for s in rec.signals)).lower()
+        if rec.shipping_eur is None and not re.search(r"versand[^.]*(unbekannt|nicht bekannt)|shipping[^.]*(unknown|not known)", text):
+            rec.signals.append(Signal(type="budget", label="Versand" if de else "Shipping", value="Versand unbekannt" if de else "Shipping unknown"))
+
+    if not fits(decision.top):
+        ok = next((a for a in decision.alternatives if fits(a)), None)
+        if ok is None:
+            reason = (f"Kein Treffer passt ins Budget von {req.budget_eur:g} €." if de else f"No match fits the budget of {req.budget_eur:g} EUR.")
+            question = ("Darf das Budget etwas höher sein oder soll ich etwas anderes suchen?" if de else "Can the budget be a bit higher, or should I look for something else?")
+            return Decision(status="needs_clarification", reply=f"{reason} {question}",
+                            uncertainty=Uncertainty(reasons=[reason], question=question))
+        rest = [a for a in [decision.top, *decision.alternatives] if a is not ok][:3]
+        note = ("Der erste Vorschlag lag über dem Budget, deshalb dieser: " if de else "The first pick was over budget, so this one instead: ")
+        decision = decision.model_copy(update={"top": ok, "alternatives": rest, "reply": note + ok.product_name})
+    for rec in [decision.top, *decision.alternatives]:
+        name_shipping(rec)
+    return decision
 
 
 # --- endpoints -------------------------------------------------------------
@@ -623,14 +672,14 @@ def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_u
     result_id = "r_" + secrets.token_hex(6)
     trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
     req = with_photo(req, trace)  # before the conversation, so the named product is part of the stored message
-    req, conversation, previous_pick = continue_conversation(req)
-    trace["conversation"] = conversation
-    req = with_amazon_wishlist(req, trace)
-    req = with_amazon_link(req, trace)
+    req = with_amazon_link(req, trace)  # likewise: the stored message holds the resolved term, not the link
     if not req.wishes and not (req.input_text or "").strip():
         raise HTTPException(422, "I could not read that link. Describe what you are looking for in a few words."
                             if req.language == "en" else
                             "Den Link kann ich keinem Produkt zuordnen. Beschreib kurz, wonach du suchst.")
+    req, conversation, previous_pick = continue_conversation(req)
+    trace["conversation"] = conversation
+    req = with_amazon_wishlist(req, trace)
     understood = understand(req, trace, previous_pick) if (req.input_text or "").strip() else None
     if understood:
         # the extracted ideas are researched like explicit wishes
@@ -650,6 +699,7 @@ def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_u
         follow_up = conversation["messages"][-1] if req.previous_id else None
         decision, model = decide(req, understood, idealo, trace, previous_pick, follow_up,
                                  must_recommend=conversation["clarify_streak"] >= 2)
+        decision = enforce_budget(decision, req)
         conversation["clarify_streak"] = conversation["clarify_streak"] + 1 if decision.status == "needs_clarification" else 0
     response = RecommendResponse(
         **decision.model_dump(),

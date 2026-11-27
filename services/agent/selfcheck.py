@@ -345,15 +345,65 @@ assert amazon.find_product_urls("https://www.amazon.de/Ducati-Schluessel-rot/dp/
 assert amazon.find_product_urls("https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ") == []
 assert amazon.slug_term("https://www.amazon.de/Ducati-Schl%C3%BCsselanh%C3%A4nger-rot/dp/B0ABCDEFGH?x=1") == "Ducati Schlüsselanhänger rot"
 assert amazon.slug_term("https://www.amazon.de/dp/B0ABCDEFGH") is None and amazon.slug_term("https://www.amazon.de/") is None
-amazon.resolve_product = lambda url: ("Ducati Schlüsselanhänger rot", "200 stub")
+# SSRF: exact Amazon hosts only, redirects followed by hand and checked per hop
+import httpx
+
+real_resolve, real_client, hits = amazon.resolve_product, httpx.Client, []
+
+
+def handler(request):
+    hits.append(request.url.host)
+    if request.url.host == "amzn.eu":
+        return httpx.Response(302, headers={"location": "/hop2"}) if request.url.path == "/d/ok" else \
+            httpx.Response(302, headers={"location": "http://169.254.169.254/latest"}) if request.url.path == "/d/evil" else \
+            httpx.Response(302, headers={"location": "https://www.amazon.de/Rotes-Glitzer-Band/dp/B0ABCDEFGH?x=1"})
+    return httpx.Response(200)
+
+
+amazon.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)
+for bad in ("https://amazon.evil.com/x/dp/B0ABCDEFGH", "https://www.amazon.de.evil.com/x/dp/B0ABCDEFGH", "ftp://amzn.eu/d/x", "https://amzn.eu:8443/d/x"):
+    assert real_resolve(bad) == (None, "rejected", None), bad
+assert not hits  # nothing was fetched for rejected links
+assert real_resolve("https://amzn.eu/d/ok") == ("Rotes Glitzer Band", "resolved", "B0ABCDEFGH")
+assert real_resolve("https://amzn.eu/d/evil")[1] == "rejected" and "169.254.169.254" not in hits  # foreign redirect target never fetched
+assert real_resolve("https://www.amazon.de/Ducati-Rot/dp/B0ABCDEFGH")[0] == "Ducati Rot"
+amazon.httpx.Client = real_client
+stub(json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"input_text": "https://amazon.evil.com/x/dp/B0ABCDEFGH Geschenkidee", "budget_eur": 40, "occasion": "Geburtstag"})
+assert r.status_code == 200, r.text
+tr = api.get(r.json()["trace_url"]).json()
+assert tr["sources"][0]["status"] == "rejected" and "evil" not in json.dumps(tr["sources"]) and "evil" not in json.dumps(tr["conversation"])
+# three links at most, resolved term lands in the stored message
+amazon.resolve_product = lambda url, timeout=5: ("Term", "resolved", None)
+stub(json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"input_text": " ".join(f"https://amzn.eu/d/a{i}" for i in range(5)), "budget_eur": 40, "occasion": "Geburtstag"})
+tr = api.get(r.json()["trace_url"]).json()
+assert [s["status"] for s in tr["sources"]] == ["resolved"] * 3 + ["skipped"] * 2 and "amzn" not in tr["conversation"]["messages"][0]
+amazon.resolve_product = real_resolve
+
+# budget enforced in code
+rq = main.RecommendRequest(wishes=["x"], budget_eur=50, occasion="x", language="de")
+rec = decision("sample.response.json")
+def pick(price, ship):
+    return main.Recommendation(wish="x", product_name=f"P{price}", action="buy", reason="gut", price_eur=price, shipping_eur=ship,
+                               signals=[main.Signal(type="budget", label="b", value="v")])
+over = main.Decision(status="recommendation", reply="r", top=pick(60, 0), alternatives=[pick(70, 0), pick(45, None)])
+fixed = main.enforce_budget(over, rq)
+assert fixed.top.product_name == "P45" and len(fixed.alternatives) == 2 and any("unbekannt" in s.value for s in fixed.top.signals)
+none_fit = main.enforce_budget(main.Decision(status="recommendation", reply="r", top=pick(60, 0)), rq)
+assert none_fit.status == "needs_clarification" and none_fit.top is None and none_fit.uncertainty.question
+assert main.enforce_budget(main.Decision(status="recommendation", reply="r", top=pick(48, 3)), rq).status == "needs_clarification"  # 51 > 50
+print("ssrf/budget ok")
+
+amazon.resolve_product = lambda url, timeout=5: ("Ducati Schlüsselanhänger rot", "resolved", "B0ABCDEFGH")
 stub(json.dumps(chat["understood"]))
 r = api.post("/recommend", json={"input_text": "https://amzn.eu/d/08jHWyXE", "budget_eur": 40, "occasion": "Geburtstag"})
 assert r.status_code == 200, r.text
 tr = api.get(r.json()["trace_url"]).json()
-assert tr["sources"][0]["type"] == "amazon_link" and tr["sources"][0]["search_term"] == "Ducati Schlüsselanhänger rot"
+assert tr["sources"][0]["type"] == "amazon_link" and tr["sources"][0]["status"] == "resolved" and tr["sources"][0]["search_term"] == "Ducati Schlüsselanhänger rot"
 sent = tr["model_calls"][0]["input"][1]["content"]
 assert "Ducati Schlüsselanhänger rot" in sent and "amzn.eu" not in sent
-amazon.resolve_product = lambda url: (None, "no product name in target")
+amazon.resolve_product = lambda url, timeout=5: (None, "failed", None)
 stub(json.dumps(chat["understood"]))
 r = api.post("/recommend", json={"input_text": "Mag Kaffee https://amzn.eu/d/08jHWyXE", "budget_eur": 40, "occasion": "Geburtstag"})
 tr = api.get(r.json()["trace_url"]).json()
