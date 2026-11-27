@@ -1,0 +1,147 @@
+{
+  "source": "snapshot",
+  "demo_case": "chat",
+  "note": "DEMO SNAPSHOT DATA. Hand-written, idealo-style, NOT fetched from the idealo MCP. Prices, merchants and URLs are illustrative. Replace with a real MCP snapshot once the MCP is connected.",
+  "captured_at": "2026-11-27",
+  "wishes": [
+    {
+      "wish": "Sport-Kopfhörer zum Laufen, die fest sitzen",
+      "matches": [
+        {
+          "product_name": "Sport-In-Ear-Kopfhörer mit Ohrbügel, Bluetooth, schweißfest",
+          "category": "Kopfhörer > In-Ear > Sport",
+          "match_confidence": "category match, no specific model named",
+          "image_url": null,
+          "price_history_90d": {
+            "currency": "EUR",
+            "lowest": 44.9,
+            "highest": 59.9,
+            "average": 52.0
+          },
+          "offers": [
+            {
+              "merchant": "Demo-Händler Laufwerk",
+              "price_eur": 44.9,
+              "shipping_eur": 3.99,
+              "available": true,
+              "delivery_estimate": "2-3 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            },
+            {
+              "merchant": "Demo-Händler Klangwerk",
+              "price_eur": 47.99,
+              "shipping_eur": 0.0,
+              "available": true,
+              "delivery_estimate": "2-3 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            },
+            {
+              "merchant": "Demo-Händler Sportbox",
+              "price_eur": 49.9,
+              "shipping_eur": 4.95,
+              "available": true,
+              "delivery_estimate": "4-6 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            }
+          ]
+        },
+        {
+          "product_name": "Open-Ear-Knochenschall-Kopfhörer für Läufer",
+          "category": "Kopfhörer > Open-Ear > Sport",
+          "match_confidence": "category match",
+          "image_url": null,
+          "price_history_90d": {
+            "currency": "EUR",
+            "lowest": 79.0,
+            "highest": 99.0,
+            "average": 89.5
+          },
+          "offers": [
+            {
+              "merchant": "Demo-Händler Laufwerk",
+              "price_eur": 84.9,
+              "shipping_eur": 0.0,
+              "available": true,
+              "delivery_estimate": "2-3 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "wish": "Trinkflasche aus Edelstahl, auslaufsicher, ohne Plastik",
+      "matches": [
+        {
+          "product_name": "Edelstahl-Trinkflasche 0,75 l, auslaufsicher, plastikfreier Verschluss",
+          "category": "Trinkflaschen > Edelstahl",
+          "match_confidence": "category match",
+          "image_url": null,
+          "price_history_90d": {
+            "currency": "EUR",
+            "lowest": 22.9,
+            "highest": 29.9,
+            "average": 26.4
+          },
+          "offers": [
+            {
+              "merchant": "Demo-Händler Unverpackt",
+              "price_eur": 24.95,
+              "shipping_eur": 4.5,
+              "available": true,
+              "delivery_estimate": "3-5 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            },
+            {
+              "merchant": "Demo-Händler Sportbox",
+              "price_eur": 26.9,
+              "shipping_eur": 4.95,
+              "available": true,
+              "delivery_estimate": "2-3 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "wish": "Handkaffeemühle",
+      "matches": [
+        {
+          "product_name": "Handkaffeemühle mit Keramikmahlwerk, Edelstahl",
+          "category": "Kaffeemühlen > Handmühlen",
+          "match_confidence": "category match",
+          "image_url": null,
+          "price_history_90d": {
+            "currency": "EUR",
+            "lowest": 34.9,
+            "highest": 49.9,
+            "average": 41.0
+          },
+          "offers": [
+            {
+              "merchant": "Demo-Händler Röstgut",
+              "price_eur": 49.9,
+              "shipping_eur": 4.9,
+              "available": true,
+              "delivery_estimate": "2-3 Werktage",
+              "offer_url": "https://www.idealo.de/"
+            },
+            {
+              "merchant": "Demo-Händler Küchenfreund",
+              "price_eur": 34.9,
+              "shipping_eur": 5.9,
+              "available": false,
+              "delivery_estimate": "nicht lieferbar",
+              "offer_url": "https://www.idealo.de/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "wish": "Krimi-Neuerscheinung als Buch",
+      "matches": []
+    }
+  ]
+}

@@ -46,12 +46,19 @@ def invalid_request(_, exc: RequestValidationError):
 
 
 class RecommendRequest(BaseModel):
-    wishes: list[str] = Field(min_length=1, max_length=10)
+    input_text: str | None = Field(default=None, max_length=20000)
+    wishes: list[str] = Field(default_factory=list, max_length=10)
     budget_eur: float = Field(gt=0)
     occasion: str
     recipient_name: str | None = None
     preferences: str | None = None
-    demo_case: Literal["simple", "chaotic"] | None = None
+    demo_case: Literal["simple", "chaotic", "chat"] | None = None
+
+    @model_validator(mode="after")
+    def some_input(self):
+        if not self.wishes and not (self.input_text or "").strip():
+            raise ValueError("give input_text or at least one wish")
+        return self
 
 
 class Signal(BaseModel):
@@ -88,10 +95,23 @@ class Uncertainty(BaseModel):
     question: str = Field(min_length=1)
 
 
+class Candidate(BaseModel):
+    idea: str
+    why: str
+
+
+class Understood(BaseModel):
+    """What the agent took from free-form input (first model step)."""
+
+    summary: str
+    interests: list[str] = Field(default_factory=list)
+    candidates: list[Candidate] = Field(min_length=1, max_length=5)
+
+
 class Decision(BaseModel):
     """What the model must return. The response adds id, model, trace_url, created_at."""
 
-    status: Literal["recommendation", "needs_clarification"]
+    status: Literal["recommendation", "needs_clarification", "ideas_only"]
     top: Recommendation | None = None
     alternatives: list[Recommendation] = Field(default_factory=list, max_length=3)
     uncertainty: Uncertainty | None = None
@@ -100,14 +120,15 @@ class Decision(BaseModel):
     def consistent(self):
         if self.status == "recommendation" and self.top is None:
             raise ValueError("status 'recommendation' requires 'top'")
-        if self.status == "needs_clarification":
+        if self.status != "recommendation":
             if self.uncertainty is None:
-                raise ValueError("status 'needs_clarification' requires 'uncertainty'")
-            self.top = None  # contract: top is null when needs_clarification
+                raise ValueError(f"status '{self.status}' requires 'uncertainty'")
+            self.top = None  # contract: top is null unless there is a recommendation
         return self
 
 
 class RecommendResponse(Decision):
+    understood: Understood | None = None
     id: str
     model: str
     trace_url: str
@@ -129,7 +150,7 @@ def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
 
 def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
     if not req.demo_case:
-        return fetch_idealo_live(req, trace)
+        return fetch_idealo_live(req, trace)  # req.wishes already holds the extracted ideas
     started = time.perf_counter()
     snapshot = json.loads((HERE / "snapshots" / f"{req.demo_case}.json").read_text())
     duration_ms = round((time.perf_counter() - started) * 1000)
@@ -146,7 +167,7 @@ def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
 
 # --- the deciding model call (Vercel AI Gateway) ----------------------------
 
-SYSTEM_PROMPT = """You are Wishloop, a gift-buying agent. You get a gift request (wishes, total budget \
+SYSTEM_PROMPT = """You are Wishloop, a gift-buying agent. Step 2: decide. You get a gift request (wishes, total budget \
 including shipping, occasion, recipient, preferences) and idealo data for every wish (products, offers per \
 merchant, price history, availability, category). Decide what to buy. Use ONLY the idealo data given; never \
 invent products, prices, merchants or URLs. Unknown values are null.
@@ -199,15 +220,23 @@ def llm_client() -> OpenAI:
     return OpenAI(api_key=key, base_url=os.environ.get("LLM_BASE_URL") or GATEWAY_URL, timeout=60)
 
 
-def decide(req: RecommendRequest, idealo: list[dict], trace: dict) -> tuple[Decision, str]:
-    """The deciding call: one chat completion through the Vercel AI Gateway (retried once on invalid JSON)."""
+UNDERSTAND_PROMPT = """You are Wishloop, a gift-buying agent. Step 1: understand the input. You get whatever \
+the giver knows about a person: a pasted wishlist, a chat export, notes, interests, a dictated description, \
+plus occasion, budget and optional preferences. Return ONE JSON object and nothing else:
+{"summary": string, "interests": [string], "candidates": [{"idea": string, "why": string}]}
+- summary: one German sentence about the person as far as the input supports it.
+- interests: up to 6 short German keywords found in the input.
+- candidates: 1-5 concrete gift ideas, each phrased as a product search term a price-comparison site would \
+understand (German), most promising first, realistic for the budget. why: the part of the input the idea comes \
+from, quoted or closely paraphrased in German. Respect dislikes and constraints stated in the input.
+- Use only what the input says. Do not invent facts about the person. If the input names explicit products, \
+keep them as candidates."""
+
+
+def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: dict) -> tuple[BaseModel, str]:
+    """One chat completion through the Vercel AI Gateway, validated against schema, retried once on invalid JSON."""
     model = os.environ.get("LLM_MODEL") or DEFAULT_MODEL
     client = llm_client()
-    user = {"request": req.model_dump(exclude={"demo_case"}), "idealo_data": idealo}
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
-    ]
     for _attempt in range(2):
         started_at = datetime.now(timezone.utc).isoformat()
         t0 = time.perf_counter()
@@ -220,6 +249,7 @@ def decide(req: RecommendRequest, idealo: list[dict], trace: dict) -> tuple[Deci
         output = completion.choices[0].message.content or ""
         usage = completion.usage
         call = {
+            "step": step,
             "model": model,
             "input": [dict(m) for m in messages],
             "output": output,
@@ -233,13 +263,37 @@ def decide(req: RecommendRequest, idealo: list[dict], trace: dict) -> tuple[Deci
         trace["model_calls"].append(call)
         print(json.dumps({"event": "model_call", **call}, ensure_ascii=False), flush=True)
         try:
-            return Decision.model_validate_json(output), model
+            return schema.model_validate_json(output), model
         except ValidationError as exc:
-            messages += [
+            messages = messages + [
                 {"role": "assistant", "content": output},
                 {"role": "user", "content": f"Invalid output, return only the corrected JSON object. Errors: {exc}"},
             ]
     raise HTTPException(502, "model returned invalid JSON twice")
+
+
+def understand(req: RecommendRequest, trace: dict) -> Understood:
+    """Step 1: turn free-form input into gift ideas."""
+    user = req.model_dump(exclude={"demo_case"})
+    messages = [
+        {"role": "system", "content": UNDERSTAND_PROMPT},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ]
+    return call_model("understand", messages, Understood, trace)[0]
+
+
+def decide(req: RecommendRequest, understood: Understood | None, idealo: list[dict], trace: dict) -> tuple[Decision, str]:
+    """Step 2, the deciding call: buy, wait or alternative, from the request plus the idealo data."""
+    user = {
+        "request": req.model_dump(exclude={"demo_case", "input_text"}),
+        "understood": understood.model_dump() if understood else None,
+        "idealo_data": idealo,
+    }
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ]
+    return call_model("decide", messages, Decision, trace)
 
 
 # --- endpoints -------------------------------------------------------------
@@ -249,10 +303,31 @@ def decide(req: RecommendRequest, idealo: list[dict], trace: dict) -> tuple[Deci
 def recommend(req: RecommendRequest) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
     trace = {"id": result_id, "model_calls": [], "idealo_calls": []}
-    idealo = fetch_idealo(req, trace)
-    decision, model = decide(req, idealo, trace)
+    understood = understand(req, trace) if (req.input_text or "").strip() else None
+    if understood:
+        # the extracted ideas are researched like explicit wishes
+        req = req.model_copy(update={"wishes": (req.wishes + [c.idea for c in understood.candidates])[:10]})
+    try:
+        idealo = fetch_idealo(req, trace)
+    except HTTPException:
+        if not understood:
+            raise
+        # No idealo data for free input (MCP not connected): say so instead of inventing prices.
+        idealo = None
+    if idealo is None:
+        decision = Decision(
+            status="ideas_only",
+            uncertainty=Uncertainty(
+                reasons=["Für diese Geschenkideen liegen noch keine idealo-Daten vor (Preise, Verfügbarkeit, Angebote)."],
+                question="Welche der Ideen soll ich genauer prüfen, sobald Preisdaten verfügbar sind?",
+            ),
+        )
+        model = trace["model_calls"][-1]["model"]
+    else:
+        decision, model = decide(req, understood, idealo, trace)
     response = RecommendResponse(
         **decision.model_dump(),
+        understood=understood,
         id=result_id,
         model=model,
         trace_url=f"/trace/{result_id}",
