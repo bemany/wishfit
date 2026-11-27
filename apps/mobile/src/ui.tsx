@@ -8,6 +8,8 @@ const ICONS = {
   back: 'M15 6l-6 6 6 6',
   plus: 'M12 5v14M5 12h14',
   send: 'M12 19V5M5 12l7-7 7 7',
+  close: 'M6 6l12 12M18 6L6 18',
+  mic: 'M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3',
   me: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 20c0-3.3 3.6-6 8-6s8 2.7 8 6',
 } as const;
 
@@ -71,8 +73,8 @@ export const Btn = ({ label, onPress, secondary, disabled }: { label: string; on
   </Pressable>
 );
 
-export const Round = ({ icon, label, onPress, ink, size = 44 }: { icon: keyof typeof ICONS; label: string; onPress: () => void; ink?: boolean; size?: number }) => (
-  <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[s.round, { width: size, height: size }, ink && { backgroundColor: C.ink }]}>
+export const Round = ({ icon, label, onPress, ink, size = 44, fill }: { icon: keyof typeof ICONS; label: string; onPress: () => void; ink?: boolean; size?: number; fill?: string }) => (
+  <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[s.round, { width: size, height: size }, ink && { backgroundColor: C.ink }, fill != null && { backgroundColor: fill }]}>
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path d={ICONS[icon]} stroke={ink ? '#fff' : C.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
@@ -92,9 +94,9 @@ export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; ti
 );
 
 // Outlined row: alternatives, steps, price breakdown
-export const Line = ({ color = C.mint, title, sub, right, last, onPress }: { color?: string; title: string; sub?: string; right?: ReactNode; last?: boolean; onPress?: () => void }) => (
+export const Line = ({ color = C.mint, title, sub, right, left, last, onPress }: { left?: ReactNode; color?: string; title: string; sub?: string; right?: ReactNode; last?: boolean; onPress?: () => void }) => (
   <Pressable disabled={!onPress} onPress={onPress} style={[s.line, last && { borderBottomWidth: 2 }]}>
-    <View style={[s.dot, { backgroundColor: color }]} />
+    {left ?? <View style={[s.dot, { backgroundColor: color }]} />}
     <View style={{ flex: 1 }}>
       <Text style={s.lineTitle}>{title}</Text>
       {sub && (

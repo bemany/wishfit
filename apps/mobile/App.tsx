@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, type Me, type Person, type Result } from './src/api';
+import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { AddPerson, Detail, MeScreen, People, Thread } from './src/screens';
 import { C } from './src/theme';
 
@@ -88,8 +88,10 @@ function Root() {
     }
   };
 
-  const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId'>) => {
-    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null };
+  const pin = (id: string, item: Product, resultId: string) => update(id, (p) => togglePin(p, item, resultId));
+
+  const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId' | 'pins'>) => {
+    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [] };
     const next = [person, ...people];
     setPeople(next);
     savePeople(next);
@@ -152,6 +154,7 @@ function Root() {
           initial={person}
           usedColors={people.filter((p) => p.id !== person.id).map((p) => p.color)}
           onBack={goBack}
+          onPin={(item, resultId) => pin(person.id, item, resultId)}
           onDone={(fields) => {
             update(person.id, (p) => ({ ...p, ...fields }));
             setView({ name: 'thread', id: person.id });
@@ -171,6 +174,7 @@ function Root() {
           error={error?.id === person.id ? error.text : null}
           onBack={goBack}
           onSend={(text) => send(person, text)}
+          onPin={(item, resultId) => pin(person.id, item, resultId)}
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
           onEdit={() => setView({ name: 'edit', id: person.id })}
         />
@@ -180,6 +184,7 @@ function Root() {
           person={person ?? people.find((p) => p.messages.some((m) => m.role === 'agent' && m.result.id === view.result.id)) ?? null}
           result={view.result}
           onBack={goBack}
+          onPin={person ? (item, resultId) => pin(person.id, item, resultId) : undefined}
         />
       ) : (
         <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} />

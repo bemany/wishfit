@@ -42,7 +42,36 @@ export type Person = {
   color: string;
   messages: Msg[];
   lastResultId: string | null;
+  pins: Pin[];
 };
+
+// A pinned product: a small snapshot of a recommendation, kept on the person
+export type Product = Pick<Recommendation, 'product_name' | 'total_eur' | 'price_eur' | 'shipping_eur' | 'merchant' | 'offer_url' | 'image_url' | 'delivery_estimate'>;
+export type Pin = Product & { pinnedAt: number; resultId: string };
+// Same product: same offer link, or same name when there is no link
+export const samePin = (a: Product, b: Product) => (a.offer_url || b.offer_url ? a.offer_url === b.offer_url : a.product_name === b.product_name);
+export const isPinned = (p: Person, item: Product) => p.pins.some((x) => samePin(x, item));
+export const togglePin = (p: Person, item: Product, resultId: string): Person =>
+  isPinned(p, item)
+    ? { ...p, pins: p.pins.filter((x) => !samePin(x, item)) }
+    : {
+        ...p,
+        pins: [
+          ...p.pins,
+          {
+            product_name: item.product_name,
+            total_eur: item.total_eur,
+            price_eur: item.price_eur,
+            shipping_eur: item.shipping_eur,
+            merchant: item.merchant,
+            offer_url: item.offer_url,
+            image_url: item.image_url,
+            delivery_estimate: item.delivery_estimate,
+            pinnedAt: Date.now(),
+            resultId,
+          },
+        ],
+      };
 
 // What the agent says for a turn; older backends send no `reply`
 export const sayOf = (r: Result) =>
@@ -128,6 +157,7 @@ export const loadPeople = (): Person[] => {
       color: p.color ?? TAG_COLORS[i % TAG_COLORS.length],
       messages: p.messages ?? [],
       lastResultId: p.lastResultId ?? null,
+      pins: Array.isArray(p.pins) ? p.pins : [],
     }));
     const fixed = uniqueColors(people);
     if (fixed.some((p, i) => p !== people[i])) savePeople(fixed);
