@@ -7,7 +7,7 @@ import threading
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import amazon
 import auth
@@ -27,7 +27,7 @@ _hits_lock = threading.Lock()
 
 
 def _url(value) -> str | None:
-    if isinstance(value, str) and len(value) <= 2000 and re.match(r"^https?://\S+$", value, re.I):
+    if isinstance(value, str) and len(value) <= 2000 and re.fullmatch(r"https?://\S+", value, re.I):
         return value
     return None
 
@@ -61,7 +61,7 @@ def _price_info(raw) -> dict | None:
         "change_percent": _num(raw.get("change_percent")),
         "url": _url(raw.get("url")),
         "image_url": _url(raw.get("image_url")),
-        "checked_at": checked if isinstance(checked, str) and re.match(r"^\d{4}-\d\d-\d\dT[\d:.+\-Z]{1,40}$", checked) else None,
+        "checked_at": checked if isinstance(checked, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:.+\-Z]{1,40}", checked) else None,
     }
 
 
@@ -80,7 +80,7 @@ def _wish(raw) -> dict | None:
         "url": _url(raw.get("url")),
         "image_url": _url(raw.get("image_url")),
         "source": raw["source"] if raw.get("source") in WISH_SOURCES else None,
-        "added_at": added if added is not None and added >= 0 else None,
+        "added_at": (int(added) if added.is_integer() else added) if added is not None and added >= 0 else None,
         "price": _price_info(raw.get("price")),
     }
 
@@ -123,8 +123,8 @@ def get_profile(slug: str) -> dict:
 
 
 class ImportRequest(BaseModel):
-    url: str
-    language: str = "en"
+    url: str = Field(max_length=2000)
+    language: str = Field(default="en", max_length=5)
 
 
 def _limited(ip: str) -> bool:

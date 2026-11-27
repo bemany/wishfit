@@ -3,6 +3,7 @@ https://github.com/christian-draeger/amazon-wishlist-webservice (WishListFetcher
 ponytail: first page only, regex instead of a DOM parser; Amazon may answer with a bot check, then this returns []."""
 import html
 import re
+import time
 from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
@@ -107,14 +108,22 @@ def parse_price(text: str | None) -> float | None:
         return None
 
 
+FETCH_TOTAL_S = 20
+FETCH_HOP_S = 6
+
+
 def fetch(url: str) -> tuple[list[dict], int]:
     """Returns (items, http_status). items: [{title, price, price_eur, url, image_url}]."""
     url = url.split("?")[0]
     headers = {"User-Agent": USER_AGENT, "Referer": "http://www.google.com", "Accept-Language": "de-DE,de;q=0.9"}
+    deadline = time.monotonic() + FETCH_TOTAL_S
     for _ in range(MAX_HOPS + 1):  # redirects by hand: every hop must be an Amazon host
         if not allowed(url):
             return [], 400
-        r = httpx.get(url, headers=headers, follow_redirects=False, timeout=15)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return [], 504
+        r = httpx.get(url, headers=headers, follow_redirects=False, timeout=min(FETCH_HOP_S, left))
         if not r.is_redirect:
             break
         url = urljoin(url, r.headers.get("location", ""))

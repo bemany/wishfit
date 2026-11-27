@@ -518,7 +518,7 @@ pw = profiles.public_profile({"name": "A", "wishes": [
     {"title": "X", "source": "snap", "added_at": 1700000000000, "price": {"price_eur": 9.5, "offer_count": 3, "in_stock": True, "trend": "down",
      "change_percent": -4.2, "url": "https://idealo.de/x", "image_url": "javascript:1", "checked_at": "2026-11-27T10:00:00+00:00", "evil": 1}},
     {"title": "Y", "source": "hack", "added_at": "now", "price": "x"}]}, None)["wishes"]
-assert pw[0]["source"] == "snap" and pw[0]["added_at"] == 1700000000000
+assert pw[0]["source"] == "snap" and pw[0]["added_at"] == 1700000000000 and type(pw[0]["added_at"]) is int
 assert pw[0]["price"] == {"price_eur": 9.5, "offer_count": 3, "in_stock": True, "trend": "down", "change_percent": -4.2,
                           "url": "https://idealo.de/x", "image_url": None, "checked_at": "2026-11-27T10:00:00+00:00"}
 assert pw[1]["source"] is None and pw[1]["added_at"] is None and pw[1]["price"] is None
@@ -526,7 +526,7 @@ print("profile ok: share/unshare, filtering, import")
 
 # price tracker: /wishes/price
 pc = []
-def price_tool(tool, arguments, session=None):
+def price_tool(tool, arguments, session=None, timeout=None):
     pc.append(tool)
     q = arguments.get("query", "")
     if tool == "search_products":
@@ -553,6 +553,26 @@ assert pr[2]["price_eur"] == 7.0 and pr[2]["trend"] is None and pr[2]["change_pe
 assert main._trend(2.9) == "stable" and main._trend(3.0) == "up" and main._trend(-3.0) == "down" and main._trend(None) is None
 assert api.post("/wishes/price", json={"wishes": [{"title": "t"}] * 21}, headers=price_ip).status_code == 422
 os.environ["IDEALO_MCP_URL"] = os.environ["IDEALO_CLIENT_ID"] = ""
-print("price   ok: /wishes/price order, trend, single offer, limits")
+n_search = pc.count("search_products")
+os.environ["IDEALO_MCP_URL"], os.environ["IDEALO_CLIENT_ID"] = "stub", "stub"
+r = api.post("/wishes/price", json={"wishes": [{"title": " CAT "}, {"title": "nothing"}]}, headers=price_ip)
+assert r.json()["prices"][0]["price_eur"] == 18.5 and pc.count("search_products") == n_search + 1  # cat from cache, nothing looked up again
+# throttle: 4 calls need at least 3 slots of 1/3 s
+import time as _t
+t0 = _t.monotonic()
+for _ in range(4):
+    main.idealo.throttle()
+assert _t.monotonic() - t0 >= 0.9
+# deadline: an idealo call that hangs yields null, not a hanging request
+main.PRICE_DEADLINE_S = 0.3
+main._price_cache.clear()
+main.idealo.call_tool = lambda *a, **k: _t.sleep(1) or {"results": []}
+t0 = _t.monotonic()
+r = api.post("/wishes/price", json={"wishes": [{"title": "slow"}]}, headers=price_ip)
+assert r.json() == {"prices": [None]} and _t.monotonic() - t0 < 0.9
+main.PRICE_DEADLINE_S = 25
+os.environ["IDEALO_MCP_URL"] = os.environ["IDEALO_CLIENT_ID"] = ""
+assert api.post("/wishlist/import", json={"url": "x" * 2001}).status_code == 422
+print("price   ok: /wishes/price order, trend, single offer, limits, cache, throttle, deadline")
 
 print("ALL CHECKS PASSED")
