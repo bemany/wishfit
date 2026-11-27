@@ -18,6 +18,21 @@ import { Body, Btn, Bubble, LanguagePicker, Line, Mono, Name, Pill, Round, Say, 
 const ACTION: Record<Recommendation['action'], Key> = { buy: 'actionBuy', wait: 'actionWait', alternative: 'actionAlternative' };
 const actionOf = (a: Recommendation['action']) => (ACTION[a] ? t(ACTION[a]) : '');
 const pad = { paddingHorizontal: 16 };
+// The date field takes DD.MM.YYYY, DD/MM/YYYY or YYYY-MM-DD and keeps YYYY-MM-DD; null when it is no real day
+export function parseDate(text: string): string | null {
+  const v = text.trim();
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v) ?? /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(v);
+  if (!m) return null;
+  const [y, mo, d] = m[1].length === 4 ? [+m[1], +m[2], +m[3]] : [+m[3], +m[2], +m[1]];
+  const at = new Date(Date.UTC(y, mo - 1, d));
+  if (at.getUTCFullYear() !== y || at.getUTCMonth() !== mo - 1 || at.getUTCDate() !== d) return null;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+const showDate = (iso?: string) => {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return getLanguage() === 'de' ? `${d}.${m}.${y}` : `${d}/${m}/${y}`;
+};
 const metaOf = (p: Person) => `${p.occasion} · ${eur(p.budget)}`;
 type OnPin = (item: Product, resultId: string) => void;
 
@@ -113,14 +128,20 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
   const [name, setName] = useState(initial?.name ?? '');
   const [budget, setBudget] = useState(initial ? String(initial.budget) : '');
   const [occasion, setOccasion] = useState(initial?.occasion ?? '');
+  const [date, setDate] = useState(() => showDate(initial?.occasionDate));
+  const [badDate, setBadDate] = useState(false);
   const allTaken = TAG_COLORS.every((c) => usedColors.includes(c));
   const [color, setColor] = useState(initial?.color ?? TAG_COLORS.find((c) => !usedColors.includes(c)) ?? TAG_COLORS[0]);
   const [error, setError] = useState(false);
 
   const submit = () => {
     const budgetEur = Number(budget.replace(',', '.').replace('€', ''));
+    const occasionDate = date.trim() ? parseDate(date) : undefined;
+    setBadDate(occasionDate === null);
     if (!name.trim() || !occasion.trim() || !(budgetEur > 0)) return setError(true);
-    onDone({ name: name.trim(), occasion: occasion.trim(), budget: budgetEur, color });
+    if (occasionDate === null) return;
+    // undefined clears a date that was removed
+    onDone({ name: name.trim(), occasion: occasion.trim(), budget: budgetEur, color, occasionDate });
   };
   const field = { fontFamily: F.display, color: C.ink, borderBottomWidth: 2, borderColor: C.ink, paddingVertical: 4 };
 
@@ -144,7 +165,12 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
               <TextInput accessibilityLabel={t('occasion')} value={occasion} onChangeText={setOccasion} placeholder={t('birthday')} placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 26 }]} />
             </View>
           </View>
+          <View style={{ gap: 4 }}>
+            <Mono>{t('date')}</Mono>
+            <TextInput accessibilityLabel={t('date')} value={date} onChangeText={setDate} keyboardType="numbers-and-punctuation" placeholder={t('datePlaceholder')} placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 26 }]} />
+          </View>
           <Mono>{t('budgetShipping')}</Mono>
+          <Mono>{t('dateHint')}</Mono>
         </Tag>
         <View style={{ gap: 10 }}>
           <Mono mute>{t('tagColour')}</Mono>
@@ -169,6 +195,7 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
           </View>
         </View>
         {error && <Body>{t('needFields')}</Body>}
+        {badDate && <Body>{t('badDate')}</Body>}
         {initial && onPin && (
           <View>
             <Mono mute style={{ paddingBottom: 10 }}>
