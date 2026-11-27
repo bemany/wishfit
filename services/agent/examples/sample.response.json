@@ -1,6 +1,7 @@
 {
   "id": "r_example01",
   "status": "recommendation",
+  "reply": "Ich würde die Anker PowerCore jetzt kaufen: Der Preis ist gerade niedrig und sie passt mit Versand ins Budget.",
   "top": {
     "wish": "Anker PowerCore 20000 mAh Powerbank",
     "product_name": "Anker PowerCore 20000 mAh (Beispielprodukt)",
@@ -15,9 +16,21 @@
     "available": true,
     "delivery_estimate": "2-3 Werktage",
     "signals": [
-      {"type": "price_history", "label": "Preis vs. 90-Tage-Tief", "value": "39,99 € (Tief bisher 42,90 €)"},
-      {"type": "availability", "label": "Verfügbarkeit", "value": "auf Lager bei 6 Händlern"},
-      {"type": "budget", "label": "Budget", "value": "44,98 € von 50 €"}
+      {
+        "type": "price_history",
+        "label": "Preis vs. 90-Tage-Tief",
+        "value": "39,99 € (Tief bisher 42,90 €)"
+      },
+      {
+        "type": "availability",
+        "label": "Verfügbarkeit",
+        "value": "auf Lager bei 6 Händlern"
+      },
+      {
+        "type": "budget",
+        "label": "Budget",
+        "value": "44,98 € von 50 €"
+      }
     ]
   },
   "alternatives": [
@@ -35,8 +48,16 @@
       "available": true,
       "delivery_estimate": "3-5 Werktage",
       "signals": [
-        {"type": "category", "label": "Kategorie", "value": "Powerbanks, 20000 mAh"},
-        {"type": "offers", "label": "Angebote", "value": "4 Angebote ab 29,99 €"}
+        {
+          "type": "category",
+          "label": "Kategorie",
+          "value": "Powerbanks, 20000 mAh"
+        },
+        {
+          "type": "offers",
+          "label": "Angebote",
+          "value": "4 Angebote ab 29,99 €"
+        }
       ]
     }
   ],
