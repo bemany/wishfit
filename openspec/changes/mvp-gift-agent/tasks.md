@@ -23,6 +23,7 @@
 - [x] 4.1 Ergebnis-Screen per ID oder Deep Link
 - [ ] 4.2 Simulator-Build (erledigt), Test auf zwei Simulatoren (offen, läuft auf dem xcode-builder)
 - [ ] 4.3 EAS Update und lokaler Build für TestFlight
+- [x] 4.4 Deep Link lädt auch bei laufender App neu; Buttons skalieren mit Dynamic Type
 
 ## 5. Abgabe
 
