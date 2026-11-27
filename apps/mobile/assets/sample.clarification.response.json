@@ -1,0 +1,16 @@
+{
+  "id": "r_example02",
+  "status": "needs_clarification",
+  "top": null,
+  "alternatives": [],
+  "uncertainty": {
+    "reasons": [
+      "\"die guten Kopfhörer von Sony\" passt auf mehrere Modelle zwischen 60 € und 350 €.",
+      "Das wahrscheinlichste Modell ist bei den meisten Händlern ausverkauft, zwei Händler nennen stark abweichende Preise."
+    ],
+    "question": "Sind Over-Ear-Kopfhörer mit Noise Cancelling gemeint oder In-Ears?"
+  },
+  "model": "example-model",
+  "trace_url": "/trace/r_example02",
+  "created_at": "2026-11-27T17:00:00+01:00"
+}

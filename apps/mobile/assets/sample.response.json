@@ -1,0 +1,47 @@
+{
+  "id": "r_example01",
+  "status": "recommendation",
+  "top": {
+    "wish": "Anker PowerCore 20000 mAh Powerbank",
+    "product_name": "Anker PowerCore 20000 mAh (Beispielprodukt)",
+    "action": "buy",
+    "reason": "Der aktuelle Preis liegt unter dem Tiefstpreis der letzten 90 Tage und inklusive Versand im Budget. Mehrere Händler haben das Produkt auf Lager.",
+    "price_eur": 39.99,
+    "shipping_eur": 4.99,
+    "total_eur": 44.98,
+    "merchant": "Beispielhändler",
+    "offer_url": "https://www.idealo.de/",
+    "image_url": null,
+    "available": true,
+    "delivery_estimate": "2-3 Werktage",
+    "signals": [
+      {"type": "price_history", "label": "Preis vs. 90-Tage-Tief", "value": "39,99 € (Tief bisher 42,90 €)"},
+      {"type": "availability", "label": "Verfügbarkeit", "value": "auf Lager bei 6 Händlern"},
+      {"type": "budget", "label": "Budget", "value": "44,98 € von 50 €"}
+    ]
+  },
+  "alternatives": [
+    {
+      "wish": "Anker PowerCore 20000 mAh Powerbank",
+      "product_name": "Vergleichbare Powerbank 20000 mAh (Beispielprodukt)",
+      "action": "alternative",
+      "reason": "Gleiche Kapazität aus derselben Kategorie, etwas günstiger, aber ohne Schnellladen.",
+      "price_eur": 29.99,
+      "shipping_eur": 3.99,
+      "total_eur": 33.98,
+      "merchant": "Beispielhändler 2",
+      "offer_url": "https://www.idealo.de/",
+      "image_url": null,
+      "available": true,
+      "delivery_estimate": "3-5 Werktage",
+      "signals": [
+        {"type": "category", "label": "Kategorie", "value": "Powerbanks, 20000 mAh"},
+        {"type": "offers", "label": "Angebote", "value": "4 Angebote ab 29,99 €"}
+      ]
+    }
+  ],
+  "uncertainty": null,
+  "model": "example-model",
+  "trace_url": "/trace/r_example01",
+  "created_at": "2026-11-27T17:00:00+01:00"
+}
