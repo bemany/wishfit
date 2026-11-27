@@ -120,7 +120,7 @@ export default function ResultPage() {
             <Alert.Title>{error}</Alert.Title>
           </Alert.Content>
         </Alert>
-        <ButtonLink href="/" variant="outline">
+        <ButtonLink href="/try" variant="outline">
           Zur Startseite
         </ButtonLink>
       </div>
@@ -217,7 +217,7 @@ export default function ResultPage() {
         </Link>
       </p>
 
-      <ButtonLink fullWidth href="/" variant={result.top ? "secondary" : "primary"}>
+      <ButtonLink fullWidth href="/try" variant={result.top ? "secondary" : "primary"}>
         Jetzt selbst jemanden beschenken
       </ButtonLink>
     </div>

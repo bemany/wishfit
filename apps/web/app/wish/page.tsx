@@ -40,7 +40,7 @@ export default function WishPage() {
             <Alert.Description>Bitte lass dir einen neuen Link schicken.</Alert.Description>
           </Alert.Content>
         </Alert>
-        <ButtonLink href="/" variant="outline">
+        <ButtonLink href="/try" variant="outline">
           Zur Startseite
         </ButtonLink>
       </div>
@@ -200,7 +200,7 @@ export default function WishPage() {
           <Card.Description>Erstell deinen eigenen Link in einer Minute.</Card.Description>
         </Card.Header>
         <Card.Footer>
-          <ButtonLink href="/" variant="outline">
+          <ButtonLink href="/try" variant="outline">
             Jetzt selbst jemanden beschenken
           </ButtonLink>
         </Card.Footer>
