@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -16,6 +17,7 @@ from fastapi.responses import JSONResponse
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+import idealo
 import storage
 
 HERE = Path(__file__).parent
@@ -138,14 +140,110 @@ class RecommendResponse(Decision):
 # --- idealo data -----------------------------------------------------------
 
 
-def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
-    """TODO(idealo-mcp): the ONE place to fill in once the idealo MCP tool list is known.
+def _eur(text: str | None) -> float | None:
+    """'1.019,90 €' -> 1019.9. idealo returns formatted strings; the model gets numbers."""
+    if not text:
+        return None
+    try:
+        return float(text.replace("€", "").replace("\xa0", "").replace(".", "").replace(",", ".").strip())
+    except ValueError:
+        return None
 
-    Run `uv run python list_idealo_tools.py` to see the real tool names, then call them here
-    (mcp.Client, see that script), append one entry per call to trace["idealo_calls"] with
-    source "live" and return the results. No tool names are guessed until then.
-    """
-    raise HTTPException(502, "idealo MCP not configured yet")
+
+def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, summarize) -> dict | list | None:
+    started = time.perf_counter()
+    try:
+        result = summarize(idealo.call_tool(tool, arguments, session))
+    except Exception as exc:  # one failed lookup must not sink the whole request; the model sees the gap
+        result = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+    trace["idealo_calls"].append({
+        "tool": tool,
+        "arguments": arguments,
+        "result": result,
+        "duration_ms": round((time.perf_counter() - started) * 1000),
+        "source": "live",
+    })
+    return result
+
+
+def _search_summary(raw: dict) -> list[dict]:
+    return [
+        {
+            "productRef": r.get("productRef"),
+            "product_name": " ".join(x for x in (r.get("name"), r.get("nameDelta")) if x),
+            "price_eur": _eur(r.get("price")),
+            "product_url": r.get("url"),
+            "image_url": r.get("imageUrl"),
+            "user_rating": r.get("userReviewsSummary"),
+            "test_grade": (r.get("testReportsSummary") or {}).get("grade"),
+            "offer_count": r.get("totalOfferCount"),
+            "bargain_discount_percent": ((r.get("badges") or {}).get("bargain") or {}).get("discountRate"),
+        }
+        for r in (raw.get("results") or [])[:3]
+    ]
+
+
+def _offers_summary(raw: dict) -> list[dict]:
+    return [
+        {
+            "merchant": (o.get("shop") or {}).get("name"),
+            "price_eur": _eur(o.get("price")),
+            "shipping_eur": 0.0 if o.get("hasAlwaysFreeShipping") else _eur(o.get("minShippingCost")),
+            "delivery_estimate": (o.get("delivery") or {}).get("deliveryText"),
+            "delivery_status": (o.get("delivery") or {}).get("deliveryStatus"),
+            "free_return_days": o.get("freeReturnDays"),
+            "offer_url": o.get("relocatorUrl"),
+        }
+        for o in (raw.get("offers") or [])[:5]
+    ]
+
+
+def _history_summary(raw: dict) -> dict | None:
+    trend = raw.get("priceTrend")
+    if not trend:
+        return None
+    s = trend.get("statistics") or {}
+    return {
+        "period_days": trend.get("periodDays"),
+        "current_eur": _eur(s.get("currentPrice")),
+        "lowest_eur": _eur(s.get("minPrice")),
+        "highest_eur": _eur(s.get("maxPrice")),
+        "average_eur": _eur(s.get("avgPrice")),
+        "change_percent": round(s["priceChangePercent"], 1) if isinstance(s.get("priceChangePercent"), (int, float)) else None,
+        "lowest_date": (s.get("lowestPriceDate") or "")[:10] or None,
+    }
+
+
+def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
+    """Live idealo data over the idealo MCP: per wish a catalog search within budget, then offers
+    (with shipping and delivery) and the 30-day price history for the two best matches."""
+    if not os.environ.get("IDEALO_MCP_URL") or not os.environ.get("IDEALO_CLIENT_ID"):
+        raise HTTPException(502, "idealo MCP not configured yet")
+    try:
+        session = idealo.open_session()
+    except Exception as exc:
+        raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
+    wishes = req.wishes[:5]
+    # ponytail: 3 workers = the trial tier's 3 req/s; raise with a partner-tier key
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        searches = list(pool.map(
+            lambda w: _idealo_call(session, "search_products",
+                                   {"query": w, "filters": {"maxPrice": req.budget_eur, "availableOnly": True}},
+                                   trace, _search_summary),
+            wishes,
+        ))
+        data = []
+        jobs = []
+        for wish, found in zip(wishes, searches):
+            matches = found if isinstance(found, list) else []
+            data.append({"wish": wish, "matches": matches, **({"search_error": found["error"]} if isinstance(found, dict) else {})})
+            for m in matches[:2]:
+                ref = {"productRef": m["productRef"]}
+                jobs.append((m, "offers", pool.submit(_idealo_call, session, "get_product_offers", ref, trace, _offers_summary)))
+                jobs.append((m, "price_history_30d", pool.submit(_idealo_call, session, "get_product_price_history", ref, trace, _history_summary)))
+        for match, key, future in jobs:
+            match[key] = future.result()
+    return data
 
 
 def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
@@ -171,6 +269,13 @@ SYSTEM_PROMPT = """You are Wishloop, a gift-buying agent. Step 2: decide. You ge
 including shipping, occasion, recipient, preferences) and idealo data for every wish (products, offers per \
 merchant, price history, availability, category). Decide what to buy. Use ONLY the idealo data given; never \
 invent products, prices, merchants or URLs. Unknown values are null.
+
+The data is live from idealo unless marked as snapshot. Per wish you get up to 3 catalog matches; the first \
+two carry "offers" (merchant, price_eur, shipping_eur, delivery_estimate, offer_url) and "price_history_30d" \
+(current, lowest, highest, average, change_percent). "understood" (may be null) is what step 1 took from the \
+giver's free-form input: prefer ideas that fit the person, not just the cheapest item. Take offer_url, \
+image_url, merchant, price and shipping from ONE concrete offer. Price history covers 30 days; say so. \
+A missing shipping_eur is null, not 0.
 
 Return exactly one JSON object, no prose, no markdown:
 {

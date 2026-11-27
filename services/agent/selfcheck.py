@@ -14,6 +14,8 @@ import main
 
 EXAMPLES = Path(__file__).parent / "examples"
 os.environ.pop("DATABASE_URL", None)  # always in-memory here
+for _k in ("IDEALO_MCP_URL", "IDEALO_CLIENT_ID", "LLM_BASE_URL"):
+    os.environ[_k] = ""  # never call the real idealo MCP or a real model from the self-check
 os.environ["LLM_MODEL"] = "stub-model"
 
 
