@@ -22,7 +22,7 @@ Self-check (model client stubbed, no key needed): `uv run python selfcheck.py`
 | `LLM_BASE_URL`, `LLM_API_KEY` | Optional: another OpenAI-compatible endpoint instead of the gateway. |
 | `LLM_MODEL` | Model that decides. Default `anthropic/claude-sonnet-5.5`. |
 | `DATABASE_URL` | Postgres (table `results`, created if missing). Empty: in-memory dict. |
-| `IDEALO_MCP_URL`, `IDEALO_MCP_TOKEN` | idealo MCP, so far only used by `list_idealo_tools.py`. |
+| `IDEALO_MCP_URL`, `IDEALO_TOKEN_URL`, `IDEALO_CLIENT_ID`, `IDEALO_CLIENT_SECRET` | idealo MCP with OAuth client credentials. Missing: requests without `demo_case` get no live data. |
 
 ## Where the model decides
 
@@ -38,7 +38,7 @@ with the result, returned by `GET /trace/{id}` and printed as one JSON line to s
 - With `demo_case`: `snapshots/simple.json` / `snapshots/chaotic.json`. These are hand-written demo
   snapshots (`"source": "snapshot"`), not MCP output. The model call is still live.
 - Without `demo_case`: 502 `idealo MCP not configured yet`. Fill in `fetch_idealo_live()` in `main.py` once
-  the tool list is known: `uv run python list_idealo_tools.py` prints every tool with its input schema.
+  the tool list is known: `uv run python idealo.py` prints every tool with its input schema.
 
 ## Vercel
 
