@@ -7,14 +7,14 @@
 
 ## 2. Backend: Konten und Datenbank (Paket A, `services/agent`)
 
-- [ ] 2.1 `db.py`: Verbindung, `migrate()` mit Advisory-Lock, Schema aus design.md, In-Memory-Ersatz ohne `DATABASE_URL`
-- [ ] 2.2 `storage.py` auf `db.py` umstellen, `results.user_id`
-- [ ] 2.3 `mail.py`: Resend-HTTP-Versand, Testmodus mit Log und optional `dev_code`
-- [ ] 2.4 `auth.py`: request-code (Rate-Limit), verify (Konto anlegen), logout, Bearer-Abhängigkeit
-- [ ] 2.5 `/me`, `DELETE /me`, `GET/PUT /me/data` mit 409 und Größenlimit
-- [ ] 2.6 `/recommend` mit optionalem Token, `user_id` speichern
-- [ ] 2.7 `selfcheck.py` um Auth-, Sync- und Löschfälle erweitern (ohne Postgres), plus ein Lauf gegen eine echte Postgres-URL
-- [ ] 2.8 Deploy auf `wishfit-agent-test`, Test mit curl (Code im Testmodus, Sync, 409, Löschen, parallele Kaltstarts)
+- [x] 2.1 `db.py`: Verbindung, `migrate()` mit Advisory-Lock, Schema aus design.md, In-Memory-Ersatz ohne `DATABASE_URL`
+- [x] 2.2 `storage.py` auf `db.py` umstellen, `results.user_id`
+- [x] 2.3 `mail.py`: Resend-HTTP-Versand, Testmodus mit Log und optional `dev_code`
+- [x] 2.4 `auth.py`: request-code (Rate-Limit), verify (Konto anlegen), logout, Bearer-Abhängigkeit
+- [x] 2.5 `/me`, `DELETE /me`, `GET/PUT /me/data` mit 409 und Größenlimit
+- [x] 2.6 `/recommend` mit optionalem Token, `user_id` speichern
+- [x] 2.7 `selfcheck.py` um Auth-, Sync- und Löschfälle erweitern (ohne Postgres), plus ein Lauf gegen eine echte Postgres-URL
+- [x] 2.8 Deploy auf `wishfit-agent-test`, Test mit curl (Code im Testmodus, Sync, 409, Löschen, parallele Kaltstarts)
 
 ## 3. App: Anmeldung und Sync (Paket B, `apps/mobile/src`)
 
