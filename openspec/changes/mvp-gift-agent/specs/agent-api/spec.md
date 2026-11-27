@@ -27,3 +27,14 @@ Das System SHALL Produkt-, Preis-, Verf체gbarkeits- und Angebotsdaten ausschlie�
 #### Scenario: Demo-Fall mit Snapshot
 - **WHEN** eine Anfrage `demo_case` enth채lt
 - **THEN** nutzt das System den gespeicherten Snapshot, und der Modell-Call l채uft trotzdem live
+
+### Requirement: Produkt aus einem Foto
+Das System SHALL ein Foto eines Produkts (`image_base64`) von einem Bildmodell in einem Live-Call benennen lassen und mit dem benannten Produkt wie mit einem genannten Wunsch weiterarbeiten. Das Foto selbst wird nicht im Trace gespeichert.
+
+#### Scenario: Foto ohne weiteren Text
+- **WHEN** eine Anfrage nur ein Foto, Budget und Anlass enth채lt
+- **THEN** enth채lt der Trace einen Modell-Call mit `step` `photo`, und die Antwort bezieht sich auf das erkannte Produkt
+
+#### Scenario: Kein Produkt erkennbar
+- **WHEN** das Bildmodell auf dem Foto kein Produkt erkennt
+- **THEN** antwortet das System mit 422 und einem Hinweis, statt ein Produkt zu raten

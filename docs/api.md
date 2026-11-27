@@ -18,6 +18,7 @@ Request (`services/agent/examples/simple.request.json`, `chaotic.request.json`, 
 | `preferences` | string? | optional free text (brand, colour, lifestyle) |
 | `language` | `"de"` \| `"en"`? | language of everything the agent writes (`reply`, reasons, signal labels, questions). Default `de`. |
 | `previous_id` | string? | follow-up in a conversation: id of the earlier result for the same person. The server prepends that request's input and earlier follow-ups, so the client sends only the new message in `input_text`. `budget_eur`, `occasion`, `recipient_name` are taken from the earlier request when omitted. Unknown id: 404. |
+| `image_base64` | string? | photo of a product (JPEG or PNG, base64 without a `data:` prefix, up to about 4 MB). A vision model (`LLM_VISION_MODEL`, default `google/gemma-3-27b-it`) names the product in an extra model call (`step: "photo"` in the trace); the name goes on as text, so a photo alone is valid input. No recognizable product: 422. |
 | `demo_case` | `"simple"` \| `"chaotic"` \| `"chat"`? | optional: use the stored idealo snapshot instead of live MCP data. The model call is always live. |
 
 Response (`sample.response.json`, `sample.clarification.response.json`, `sample.chat.response.json`, `sample.ideas.response.json`):

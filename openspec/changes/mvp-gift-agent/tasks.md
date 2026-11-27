@@ -26,6 +26,7 @@
 - [ ] 4.2 Simulator-Build (erledigt), Test auf zwei Simulatoren (offen, läuft auf dem xcode-builder)
 - [ ] 4.3 EAS Update und lokaler Build für TestFlight
 - [x] 4.4 Deep Link lädt auch bei laufender App neu; Buttons skalieren mit Dynamic Type
+- [x] 4.6 Fotosuche: Snap-Screen mit Kamera in der App (aus dem Chat oder vom People-Screen, dann „Whose tag?“) oder Foto aus der Mediathek; ein Bildmodell benennt es (`image_base64`, Schritt `photo` im Trace), danach normaler Ablauf über idealo
 - [x] 4.5 Oberfläche auf HeroUI Native (Uniwind) umgestellt, Markenname als Konstante
 
 ## 5. Abgabe
