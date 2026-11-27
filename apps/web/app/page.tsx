@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
+import { HeroVideo } from "./hero-video";
 
 // Static landing page in the "Gift tags" look (docs/design/gift-tags.md). The tool itself lives at /try.
 
@@ -59,8 +60,8 @@ export default function LandingPage() {
             <Link href="/try" className={`${pill} bg-[#0b0b0c] text-white`}>
               Try it
             </Link>
-            <a href="#how" className={`${pill} bg-white`}>
-              How it works
+            <a href="#film" className={`${pill} bg-white`}>
+              Watch the film
             </a>
           </div>
         </div>
@@ -82,6 +83,8 @@ export default function LandingPage() {
           </Tag>
         </div>
       </section>
+
+      <HeroVideo src="/video/brag.mp4" poster="/video/brag.jpg" />
 
       <section id="how" className="flex scroll-mt-8 flex-col gap-8">
         <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">How it works</h2>
@@ -135,11 +138,10 @@ export default function LandingPage() {
       <section className="flex flex-col gap-8">
         <div className="flex flex-col gap-2">
           <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">Watch</h2>
-          <p className="max-w-xl text-[#5f5f66]">Two pitch films cut from real app screens, and three short ad clips.</p>
+          <p className="max-w-xl text-[#5f5f66]">The second film, on the paradox of surprise, and three short ad clips.</p>
         </div>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6">
           {[
-            { src: 'brag', label: 'The pitch film' },
             { src: 'paradox', label: 'The paradox of surprise' },
           ].map((v) => (
             <figure key={v.src} className="flex flex-col gap-2">
