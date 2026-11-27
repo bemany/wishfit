@@ -294,4 +294,88 @@ assert api.get("/me/data", headers=new_h).json()["updated_at"] is None
 api.delete("/me", headers=new_h)
 api.delete("/me", headers=_h)
 print("accounts ok: code sign-in, rate limit, attempts, sessions, sync 409/413/422, delete", "(postgres)" if db.use_postgres() else "(memory)")
+# --- agent quality: offer-only hits, control characters, Amazon links, clarification streak ---
+import amazon
+
+# c) U+FFFC and control characters never reach the model
+assert main.clean_text("rote\ufffc Sachen\x00\u200b!\n") == "rote Sachen!\n"
+stub(json.dumps(chat["understood"]), json.dumps(decision("sample.chat.response.json")))
+r = api.post("/recommend", json=example("chat.request.json") | {"input_text": "Sie mag Kaffee \ufffc \ufffc"})
+assert r.status_code == 200, r.text
+assert "\\ufffc" not in api.get(r.json()["trace_url"]).json()["model_calls"][0]["input"][1]["content"].lower()
+assert api.post("/recommend", json={"input_text": "\ufffc", "budget_eur": 10, "occasion": "x"}).status_code == 422
+
+# a) a single-offer hit becomes one offer, no offers/price-history lookups for it
+single = {"productRef": "x1", "product_name": "Kirsch Glitzer Schluesselanhaenger", "price_eur": 7.28,
+          "product_url": "https://www.idealo.de/relocator/relocate?offerKey=abc&type=oc_offer", "offer_count": 1}
+catalog = {"productRef": "x2", "product_name": "Katalogprodukt", "price_eur": 20.0, "product_url": "https://www.idealo.de/preisvergleich/x2.html"}
+assert main.is_single_offer(single) and not main.is_single_offer(catalog)
+offer = main.offer_from_hit(single)[0]
+assert offer["offer_url"] == single["product_url"] and offer["price_eur"] == 7.28 and offer["merchant"] is None
+assert offer["shipping_eur"] is None and offer["available"] is True
+assert main.offer_from_hit({"price_eur": None, "product_url": "u"}) == [] and main.offer_from_hit({"price_eur": 1, "product_url": None}) == []
+os.environ["IDEALO_MCP_URL"], os.environ["IDEALO_CLIENT_ID"] = "stub", "stub"
+calls = []
+
+
+def fake_call_tool(tool, arguments, session=None):
+    calls.append(tool)
+    if tool == "search_products":
+        return {"results": [
+            {"productRef": "x1", "name": "Kirsch Glitzer", "price": "7,28 \u20ac", "url": single["product_url"], "totalOfferCount": 1},
+            {"productRef": "x2", "name": "Katalog", "price": "20,00 \u20ac", "url": catalog["product_url"], "totalOfferCount": 5},
+        ]}
+    return {"offers": []}  # catalog product whose offer lookup comes back empty
+
+
+main.idealo.open_session = lambda: "s"
+main.idealo.call_tool = fake_call_tool
+t = {"idealo_calls": []}
+data = main.fetch_idealo_live(main.RecommendRequest(wishes=["Schluesselanhaenger"], budget_eur=100, occasion="x"), t)
+m1, m2 = data[0]["matches"][0], data[0]["matches"][1]
+assert m1["offers"][0]["price_eur"] == 7.28 and m1["price_history_30d"] is None
+assert m2["offers"][0]["derived_from_search_hit"]  # empty lookup falls back to the hit
+assert calls.count("get_product_offers") == 1 and calls.count("get_product_price_history") == 1  # only for the catalog hit
+os.environ["IDEALO_MCP_URL"] = os.environ["IDEALO_CLIENT_ID"] = ""
+print("offers  ok: single-offer hits usable, no pointless lookups")
+
+# d) Amazon short and product links: redirect resolved, slug becomes the wish; failure drops the link
+assert amazon.find_product_urls("schau https://amzn.eu/d/08jHWyXE bitte") == ["https://amzn.eu/d/08jHWyXE"]
+assert amazon.find_product_urls("https://www.amazon.de/Ducati-Schluessel-rot/dp/B0ABCDEFGH?th=1")[0].endswith("th=1")
+assert amazon.find_product_urls("https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ") == []
+assert amazon.slug_term("https://www.amazon.de/Ducati-Schl%C3%BCsselanh%C3%A4nger-rot/dp/B0ABCDEFGH?x=1") == "Ducati Schlüsselanhänger rot"
+assert amazon.slug_term("https://www.amazon.de/dp/B0ABCDEFGH") is None and amazon.slug_term("https://www.amazon.de/") is None
+amazon.resolve_product = lambda url: ("Ducati Schlüsselanhänger rot", "200 stub")
+stub(json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"input_text": "https://amzn.eu/d/08jHWyXE", "budget_eur": 40, "occasion": "Geburtstag"})
+assert r.status_code == 200, r.text
+tr = api.get(r.json()["trace_url"]).json()
+assert tr["sources"][0]["type"] == "amazon_link" and tr["sources"][0]["search_term"] == "Ducati Schlüsselanhänger rot"
+sent = tr["model_calls"][0]["input"][1]["content"]
+assert "Ducati Schlüsselanhänger rot" in sent and "amzn.eu" not in sent
+amazon.resolve_product = lambda url: (None, "no product name in target")
+stub(json.dumps(chat["understood"]))
+r = api.post("/recommend", json={"input_text": "Mag Kaffee https://amzn.eu/d/08jHWyXE", "budget_eur": 40, "occasion": "Geburtstag"})
+tr = api.get(r.json()["trace_url"]).json()
+assert tr["sources"][0]["search_term"] is None and "amzn.eu" not in tr["model_calls"][0]["input"][1]["content"]
+r = api.post("/recommend", json={"input_text": "https://amzn.eu/d/08jHWyXE", "budget_eur": 40, "occasion": "Geburtstag"})
+assert r.status_code == 422 and isinstance(r.json()["detail"], str)  # nothing left to work with
+print("amazon  ok: link resolved to a wish, failure dropped and traced")
+
+# b) after two clarifications in a row the model must recommend
+clar = decision("sample.clarification.response.json")
+rec = decision("sample.response.json")
+stub(json.dumps(chat["understood"]), json.dumps(clar))
+a = api.post("/recommend", json=example("chat.request.json") | {"demo_case": "chaotic"})
+assert a.json()["status"] == "needs_clarification", a.text
+stub(json.dumps(chat["understood"]), json.dumps(clar))
+b = api.post("/recommend", json={"previous_id": a.json()["id"], "input_text": "Something else", "demo_case": "chaotic"})
+assert b.json()["status"] == "needs_clarification"
+stub(json.dumps(chat["understood"]), json.dumps(clar), json.dumps(rec))  # third time: first answer is rejected, retry forced
+c = api.post("/recommend", json={"previous_id": b.json()["id"], "input_text": "Something else", "demo_case": "chaotic"})
+assert c.json()["status"] == "recommendation", c.text
+tc = api.get(c.json()["trace_url"]).json()
+assert '"must_recommend": true' in tc["model_calls"][1]["input"][1]["content"] and len(tc["model_calls"]) == 3
+assert tc["conversation"]["clarify_streak"] == 0
+print("streak  ok: recommendation forced after two clarifications")
 print("ALL CHECKS PASSED")
