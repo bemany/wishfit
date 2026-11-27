@@ -3,7 +3,8 @@ import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Account } from './account';
-import { ApiError, call, deviceLanguage, sameWish, toWishes, type Me, type Person, type Price, type Wish } from './api';
+import { ApiError, call, sameWish, toWishes, type Me, type Person, type Price, type Wish } from './api';
+import { getLanguage, locale, t, wishCount } from './i18n';
 import { isWeb, openLink, shareText } from './platform';
 import { C, F, TAG_COLORS, eur } from './theme';
 import { Body, Btn, Mono, Name, Pill, Tag, TopBar, s } from './ui';
@@ -108,7 +109,7 @@ export const applyPrices = (current: Wish[], checked: Wish[]): Wish[] =>
 
 type Imported = { title: string; price_eur: number | null; url: string | null; image_url: string | null };
 export async function importWishlist(url: string): Promise<Wish[]> {
-  const r = await call<{ items: Imported[] }>('POST', '/wishlist/import', { url: url.trim(), language: deviceLanguage() }, false);
+  const r = await call<{ items: Imported[] }>('POST', '/wishlist/import', { url: url.trim(), language: getLanguage() }, false);
   const now = Date.now();
   return toWishes(r.items.map((it) => ({ ...it, source: 'amazon', added_at: now })));
 }

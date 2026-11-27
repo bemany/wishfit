@@ -1,3 +1,5 @@
+import { getLanguage } from './i18n';
+
 // "Gift tags" direction, mirrors docs/design/gift-tags.css
 export const C = {
   ink: '#0b0b0c',
@@ -21,4 +23,9 @@ export const F = {
   mono: 'DMMono_500Medium',
 };
 
-export const eur = (n: number | null | undefined) => (n == null ? '–' : '€' + (Number.isInteger(n) ? n : n.toFixed(2)));
+// €42 in English, 42 € in German
+export const eur = (n: number | null | undefined) => {
+  if (n == null) return '–';
+  const v = Number.isInteger(n) ? String(n) : n.toFixed(2);
+  return getLanguage() === 'de' ? `${v.replace('.', ',')} €` : '€' + v;
+};
