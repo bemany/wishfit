@@ -15,7 +15,7 @@ Das System SHALL bei fehlenden oder widersprüchlichen Daten begründen, warum e
 - **THEN** enthält die Antwort `uncertainty` mit mindestens einem Grund und einer Rückfrage
 
 ### Requirement: Entscheidung kommt aus einem Live-Modell-Call
-Das System SHALL die Entscheidung von einem Modell auf der Nebius Token Factory treffen lassen und jeden Modell-Call mit Modellname, Eingabe und Ausgabe speichern.
+Das System SHALL die Entscheidung von einem Sprachmodell in einem Live-Call treffen lassen (Stand 27.11.: über das Vercel AI Gateway) und jeden Modell-Call mit Modellname, Eingabe und Ausgabe speichern.
 
 #### Scenario: Trace abrufen
 - **WHEN** ein Client `GET /trace/{id}` für ein vorhandenes Ergebnis aufruft

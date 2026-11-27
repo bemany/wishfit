@@ -5,7 +5,8 @@ Hackathon-Projekt, Abgabe 27.11.2026 um 19:45 CET. Tempo vor Vollständigkeit.
 - Zuerst `docs/plan.md` lesen (Umfang, was gebaut wird und was nur in den Pitch kommt).
 - Bewertungskriterien stehen in `docs/challenges.md`. Jede Arbeit sollte auf ein Kriterium einzahlen.
 - Monorepo: `services/agent` (Backend), `apps/web` (Landingpage), `apps/mobile` (Expo-App, React Native).
-- Der Agent ruft seine Modelle über die Nebius Token Factory auf (OpenAI-kompatibel). Die Entscheidung
+- Der Agent ruft sein Modell über das Vercel AI Gateway auf (OpenAI-kompatibel, Stand 27.11. abends; Nebius
+  Token Factory ist vorerst raus und per `LLM_BASE_URL`/`LLM_API_KEY` wieder einstellbar). Die Entscheidung
   muss aus einem Live-Call kommen und im Log/Trace sichtbar sein.
 - idealo-Daten kommen nur über den idealo-MCP. Das Backend ist MCP-Client.
 - Norma-Challenge: Änderungen gehen über Pull Requests, nicht direkt auf `main`. Mindestens 2 PRs von

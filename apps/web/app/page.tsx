@@ -275,7 +275,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="text-sm text-muted">
-        Produkt- und Preisdaten kommen von idealo. Die Entscheidung trifft ein Modell über die Nebius Token Factory;
+        Produkt- und Preisdaten kommen von idealo. Die Entscheidung trifft ein Sprachmodell in einem Live-Aufruf;
         jeder Aufruf ist im Trace einsehbar.
       </footer>
     </div>

@@ -149,7 +149,7 @@ function ResultView({ result }: { result: Result }) {
         <RecCard key={i} rec={rec} />
       ))}
       <Text className="text-xs text-muted">
-        Ergebnis {result.id} · entschieden von {result.model} über die Nebius Token Factory
+        Ergebnis {result.id} · entschieden von {result.model}
       </Text>
     </>
   );

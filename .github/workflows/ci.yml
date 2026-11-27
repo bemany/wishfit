@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      # Nebius client is stubbed in selfcheck.py, no secrets needed.
+      # Model client is stubbed in selfcheck.py, no secrets needed.
       - run: uv run python selfcheck.py
 
   web:
