@@ -110,7 +110,7 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete }: { i
           <Mono>{initial ? 'Edit tag' : 'New tag'}</Mono>
           <View style={{ gap: 4 }}>
             <Mono>Name</Mono>
-            <TextInput accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8, height: 60, paddingVertical: 0 }]} />
+            <TextInput accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8, lineHeight: 48, height: 60, paddingVertical: 0 }]} />
           </View>
           <View style={{ flexDirection: 'row', gap: 16 }}>
             <View style={{ flex: 1, gap: 4 }}>
@@ -187,7 +187,7 @@ export function MeScreen({ me, onChange, onBack }: { me: Me; onChange: (me: Me) 
             onChangeText={(text) => onChange({ ...me, name: text })}
             placeholder="Your name"
             placeholderTextColor="rgba(11,11,12,0.4)"
-            style={{ fontFamily: F.display, color: C.ink, fontSize: 40, letterSpacing: -1.8, height: 60, borderBottomWidth: 2, borderColor: C.ink, paddingVertical: 0 }}
+            style={{ fontFamily: F.display, color: C.ink, fontSize: 40, letterSpacing: -1.8, lineHeight: 48, height: 60, borderBottomWidth: 2, borderColor: C.ink, paddingVertical: 0 }}
           />
         </Tag>
         <View style={{ flexDirection: 'row', gap: 12 }}>
