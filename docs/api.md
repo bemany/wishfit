@@ -79,3 +79,25 @@ Returns the stored response of an earlier `POST /recommend`. `404` if unknown.
 ## GET /health
 
 `{"ok": true}`
+
+## Accounts (change `accounts-and-web`)
+
+Sign-in with e-mail and a one-time code. The first successful code creates the account. Protected
+endpoints need `Authorization: Bearer <token>`; without a valid token they answer 401. E-mail addresses
+are trimmed and lower-cased.
+
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| POST | `/auth/request-code` | no | `{email, language?}` (`"de"` default, `"en"`) | 204. Test mode (`AUTH_DEV_CODES=1`, no mail key): 200 `{dev_code}`. 422 invalid address, 429 more than once per 60 s or 5 per hour |
+| POST | `/auth/verify` | no | `{email, code}` | 200 `{token, user: {id, email, created_at}, created}`; 401 wrong, expired or used code (5 attempts per code) |
+| POST | `/auth/logout` | yes | – | 204, the token is invalid afterwards |
+| GET | `/me` | yes | – | 200 `{id, email, created_at}` |
+| DELETE | `/me` | yes | – | 204, deletes account, sessions and synced data; results lose their owner |
+| GET | `/me/data` | yes | – | 200 `{people, profile, updated_at}`; empty account: `{people: [], profile: null, updated_at: null}` |
+| PUT | `/me/data` | yes | `{people, profile, base_updated_at}` | 200 `{updated_at}`; 409 `{detail, people, profile, updated_at}` when `base_updated_at` is not the stored one (use `null` for an empty account); 413 over 2 MB |
+
+- Codes: 6 digits, valid 10 minutes, a new request replaces the open code. Tokens are valid 90 days.
+- `people` is the app's list of persons (each with `id` and `updatedAt` in ms), `profile` the app's own
+  profile object (with `updatedAt`) or null. The server stores both as given.
+- `POST /recommend` accepts an optional token; with a valid token the result belongs to the account.
+  An invalid token answers 401. `GET /results/{id}` and `GET /trace/{id}` stay public.
