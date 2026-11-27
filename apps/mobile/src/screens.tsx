@@ -6,15 +6,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
 import { AccountPanel } from './account-ui';
-import { ImportBox, SharePanel, T, WishList, mergeWishes } from './profile';
+import { ImportBox, SharePanel, WishList, mergeWishes } from './profile';
 import type { Account } from './account';
-import { isPinned, lastResult, sayOf, type Me, type Person, type Product, type Recommendation, type Result } from './api';
+import { isDate, isPinned, lastResult, sayOf, type Me, type Person, type Product, type Recommendation, type Result } from './api';
 import { canOpenSettings, openLink, openSettings, shareText } from './platform';
 import { askMicPermission, dictate, speechAvailable } from './speech';
+import { getLanguage, locale, t, wishCount, type Key, type Lang } from './i18n';
 import { C, F, TAG_COLORS, eur } from './theme';
 import { Body, Btn, Bubble, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Tag, TopBar, s } from './ui';
 
-const ACTION = { buy: 'Buy now', wait: 'Better wait', alternative: 'Alternative' } as const;
+const ACTION: Record<Recommendation['action'], Key> = { buy: 'actionBuy', wait: 'actionWait', alternative: 'actionAlternative' };
+const actionOf = (a: Recommendation['action']) => (ACTION[a] ? t(ACTION[a]) : '');
 const pad = { paddingHorizontal: 16 };
 const metaOf = (p: Person) => `${p.occasion} · ${eur(p.budget)}`;
 type OnPin = (item: Product, resultId: string) => void;
@@ -22,7 +24,7 @@ type OnPin = (item: Product, resultId: string) => void;
 // Outlined "Pin", filled "Pinned". Toggles, never navigates
 const PinPill = ({ pinned, onPress }: { pinned: boolean; onPress: () => void }) => (
   <Pressable accessibilityRole="button" accessibilityState={{ selected: pinned }} hitSlop={8} onPress={onPress} style={[s.pill, { alignSelf: 'flex-start' }, pinned && { backgroundColor: C.ink }]}>
-    <Text style={[s.pillText, pinned && { color: '#fff' }]}>{pinned ? 'Pinned' : 'Pin'}</Text>
+    <Text style={[s.pillText, pinned && { color: '#fff' }]}>{pinned ? t('pinned') : t('pin')}</Text>
   </Pressable>
 );
 
@@ -58,17 +60,17 @@ export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: 
     <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
       <TopBar left={<Text style={s.word}>{brand.toLowerCase()}</Text>} right={
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Round icon="camera" label="Snap a product" onPress={onSnap} />
-            <Round icon="me" label="Me" onPress={onMe} />
-            <Round icon="plus" label="Add someone" ink onPress={onAdd} />
+            <Round icon="camera" label={t('snapProduct')} onPress={onSnap} />
+            <Round icon="me" label={t('me')} onPress={onMe} />
+            <Round icon="plus" label={t('addSomeone')} ink onPress={onAdd} />
           </View>
         }
       />
-      <Text style={s.display}>Who gets a gift next?</Text>
+      <Text style={s.display}>{t('whoNext')}</Text>
       <View style={{ marginTop: 4 }}>
         {people.map((p, i) => {
           const r = lastResult(p);
-          const status = !r ? 'New' : r.status === 'recommendation' ? 'Pick ready' : r.status === 'needs_clarification' ? '1 question' : 'Ideas';
+          const status = !r ? t('statusNew') : r.status === 'recommendation' ? t('statusPick') : r.status === 'needs_clarification' ? t('statusQuestion') : t('statusIdeas');
           const last = i === people.length - 1;
           return (
             <Wiggle key={p.id} style={i > 0 && { marginTop: -64 }}>
@@ -76,7 +78,7 @@ export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: 
               <View style={s.row}>
                 <Mono>
                   {metaOf(p)}
-                  {p.pins.length > 0 && ` · ${p.pins.length} pinned`}
+                  {p.pins.length > 0 && ` · ${t('nPinned', { n: p.pins.length })}`}
                 </Mono>
                 <Mono>{status}</Mono>
               </View>
@@ -91,11 +93,11 @@ export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: 
           );
         })}
       </View>
-      {people.length === 0 && <Body style={{ color: C.mute }}>No tags yet. Add the first person you want to find a gift for.</Body>}
-      <Btn label="Add someone" onPress={onAdd} />
-      <Btn secondary label="Invite a friend" onPress={() => shareText(`I'm using Wishfit to find gifts people actually want. ${SITE}`)} />
+      {people.length === 0 && <Body style={{ color: C.mute }}>{t('noTags')}</Body>}
+      <Btn label={t('addSomeone')} onPress={onAdd} />
+      <Btn secondary label={t('invite')} onPress={() => shareText(t('inviteText', { url: SITE }))} />
       <Mono mute style={{ textAlign: 'center' }}>
-        Your tags stay on this phone.
+        {t('tagsLocal')}
       </Mono>
     </ScrollView>
   );
@@ -125,27 +127,27 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
-        <TopBar onBack={onBack} title={initial ? `More · ${initial.name}` : "Add someone"} />
+        <TopBar onBack={onBack} title={initial ? t('moreOf', { name: initial.name }) : t('addSomeone')} />
         <Tag color={color} style={{ gap: 14 }}>
-          <Mono>{initial ? 'Edit tag' : 'New tag'}</Mono>
+          <Mono>{initial ? t('editTag') : t('newTag')}</Mono>
           <View style={{ gap: 4 }}>
-            <Mono>Name</Mono>
-            <TextInput accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8, lineHeight: 48, height: 60, paddingVertical: 0 }]} />
+            <Mono>{t('name')}</Mono>
+            <TextInput accessibilityLabel={t('name')} value={name} onChangeText={setName} placeholder={t('name')} placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8, lineHeight: 48, height: 60, paddingVertical: 0 }]} />
           </View>
           <View style={{ flexDirection: 'row', gap: 16 }}>
             <View style={{ flex: 1, gap: 4 }}>
-              <Mono>Budget in EUR</Mono>
-              <TextInput accessibilityLabel="Budget" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" placeholder="50" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 26 }]} />
+              <Mono>{t('budgetEur')}</Mono>
+              <TextInput accessibilityLabel={t('budget')} value={budget} onChangeText={setBudget} keyboardType="decimal-pad" placeholder="50" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 26 }]} />
             </View>
             <View style={{ flex: 1.4, gap: 4 }}>
-              <Mono>Occasion</Mono>
-              <TextInput accessibilityLabel="Occasion" value={occasion} onChangeText={setOccasion} placeholder="Birthday" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 26 }]} />
+              <Mono>{t('occasion')}</Mono>
+              <TextInput accessibilityLabel={t('occasion')} value={occasion} onChangeText={setOccasion} placeholder={t('birthday')} placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 26 }]} />
             </View>
           </View>
-          <Mono>Budget includes shipping</Mono>
+          <Mono>{t('budgetShipping')}</Mono>
         </Tag>
         <View style={{ gap: 10 }}>
-          <Mono mute>Tag colour</Mono>
+          <Mono mute>{t('tagColour')}</Mono>
           <View style={{ flexDirection: 'row', gap: 12 }}>
             {TAG_COLORS.map((c) => {
               const taken = !allTaken && c !== color && usedColors.includes(c);
@@ -153,7 +155,7 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
                 <Pressable
                   key={c}
                   accessibilityRole="button"
-                  accessibilityLabel={`Colour ${c}${taken ? ', taken' : ''}`}
+                  accessibilityLabel={t(taken ? 'colourTaken' : 'colour', { c })}
                   accessibilityState={{ disabled: taken, selected: c === color }}
                   disabled={taken}
                   onPress={() => setColor(c)}
@@ -166,13 +168,13 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
             })}
           </View>
         </View>
-        {error && <Body>I need a name, a budget and an occasion.</Body>}
+        {error && <Body>{t('needFields')}</Body>}
         {initial && onPin && (
           <View>
             <Mono mute style={{ paddingBottom: 10 }}>
-              Pinned
+              {t('pinned')}
             </Mono>
-            {pins.length === 0 && <Body style={{ color: C.mute }}>Nothing pinned yet. Pin a product in the chat to keep it here.</Body>}
+            {pins.length === 0 && <Body style={{ color: C.mute }}>{t('nothingPinned')}</Body>}
             {pins.map((pin, i) => (
               <Line
                 key={pin.pinnedAt}
@@ -181,8 +183,8 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
                 title={pin.product_name}
                 sub={[eur(pin.total_eur), pin.merchant].filter(Boolean).join(' · ')}
                 right={
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Unpin ${pin.product_name}`} hitSlop={8} onPress={() => onPin(pin, pin.resultId)} style={s.pill}>
-                    <Text style={s.pillText}>Unpin</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel={t('unpinThis', { name: pin.product_name })} hitSlop={8} onPress={() => onPin(pin, pin.resultId)} style={s.pill}>
+                    <Text style={s.pillText}>{t('unpin')}</Text>
                   </Pressable>
                 }
                 last={i === pins.length - 1}
@@ -194,10 +196,10 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
         )}
       </ScrollView>
       <View style={[pad, { paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        <Btn label={initial ? 'Save' : 'Continue'} onPress={submit} />
+        <Btn label={initial ? t('save') : t('continue')} onPress={submit} />
         {onDelete && (
-          <Pressable accessibilityRole="button" accessibilityLabel="Remove this tag" onPress={onDelete} style={{ alignItems: 'center', paddingVertical: 14 }}>
-            <Mono>Remove this tag</Mono>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('removeTag')} onPress={onDelete} style={{ alignItems: 'center', paddingVertical: 14 }}>
+            <Mono>{t('removeTag')}</Mono>
           </Pressable>
         )}
       </View>
@@ -219,32 +221,32 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
       <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
-        <TopBar onBack={onBack} title="Me" />
+        <TopBar onBack={onBack} title={t('me')} />
         <Tag color={me.color} style={{ gap: 8 }}>
           <View style={s.row}>
-            <Mono>My tag</Mono>
-            <Mono>{me.wishes.length === 1 ? '1 wish' : `${me.wishes.length} wishes`}</Mono>
+            <Mono>{t('myTag')}</Mono>
+            <Mono>{wishCount(me.wishes.length)}</Mono>
           </View>
           <TextInput
-            accessibilityLabel="My name"
+            accessibilityLabel={t('myName')}
             value={me.name}
             onChangeText={(text) => onChange({ ...me, name: text })}
-            placeholder="Your name"
+            placeholder={t('yourName')}
             placeholderTextColor="rgba(11,11,12,0.4)"
             style={{ fontFamily: F.display, color: C.ink, fontSize: 40, letterSpacing: -1.8, lineHeight: 48, height: 60, borderBottomWidth: 2, borderColor: C.ink, paddingVertical: 0 }}
           />
         </Tag>
         <View style={{ flexDirection: 'row', gap: 12 }}>
           {TAG_COLORS.map((c) => (
-            <Pressable key={c} accessibilityRole="button" accessibilityLabel={`Colour ${c}`} onPress={() => onChange({ ...me, color: c })} style={[s.round, { width: 48, height: 48, backgroundColor: c }]}>
+            <Pressable key={c} accessibilityRole="button" accessibilityLabel={t('colour', { c })} onPress={() => onChange({ ...me, color: c })} style={[s.round, { width: 48, height: 48, backgroundColor: c }]}>
               {c === me.color && <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: C.ink }} />}
             </Pressable>
           ))}
         </View>
         <SharePanel me={me} account={account} onChange={onChange} onNeedSignIn={() => scroll.current?.scrollToEnd({ animated: true })} />
         <View style={{ gap: 10 }}>
-          <Mono mute>{T.myWishlist}</Mono>
-          <WishList wishes={me.wishes} mine color={me.color} empty={T.noWishes} onRemove={(i) => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} />
+          <Mono mute>{t('myWishlist')}</Mono>
+          <WishList wishes={me.wishes} mine color={me.color} empty={t('noWishes')} onRemove={(i) => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} />
         </View>
         <ImportBox
           onImported={(incoming) => {
@@ -254,10 +256,10 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
           }}
         />
         <View style={{ gap: 8 }}>
-          <Mono mute>{T.addWish}</Mono>
+          <Mono mute>{t('addWish')}</Mono>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <TextInput accessibilityLabel="New wish" value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder={T.addPlaceholder} placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
-            <Round icon="plus" label="Add wish" ink size={52} onPress={addWish} />
+            <TextInput accessibilityLabel={t('newWish')} value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder={t('addPlaceholder')} placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
+            <Round icon="plus" label={t('addWishButton')} ink size={52} onPress={addWish} />
           </View>
         </View>
         <AccountPanel account={account} />
@@ -266,7 +268,7 @@ export function MeScreen({ me, account, onChange, onBack }: { me: Me; account: A
   );
 }
 
-const STEPS = ['Understanding', 'Searching idealo', 'Deciding'];
+const STEPS: Key[] = ['stepUnderstanding', 'stepSearching', 'stepDeciding'];
 // 4 Searching. No real progress from the backend: the steps simply appear one after another.
 // While waiting, a small tag in the person's colour swings around its hole and the running step's dots bounce.
 function Searching({ color }: { color: string }) {
@@ -298,7 +300,7 @@ function Searching({ color }: { color: string }) {
   }, []);
   const rotate = swing.interpolate({ inputRange: [-1, 1], outputRange: ['-7deg', '7deg'] });
   const bounce = (
-    <View accessibilityLabel="working" style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+    <View accessibilityLabel={t('working')} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
       {[0, 1, 2].map((i) => (
         <Animated.View
           key={i}
@@ -309,7 +311,7 @@ function Searching({ color }: { color: string }) {
   );
   return (
     <View>
-      <Say style={{ paddingBottom: 12 }}>On it. This takes about 20 seconds.</Say>
+      <Say style={{ paddingBottom: 12 }}>{t('onIt')}</Say>
       {/* the pivot is the hole, 30pt above the tag's centre */}
       <Animated.View
         style={{ alignSelf: 'flex-start', marginLeft: 10, marginBottom: 14, width: 60, height: 80, borderRadius: 14, borderWidth: 2, borderColor: C.ink, backgroundColor: color, transform: [{ translateY: -30 }, { rotate }, { translateY: 30 }] }}
@@ -317,7 +319,7 @@ function Searching({ color }: { color: string }) {
         <View style={[s.hole, { top: 6, width: 12, height: 12 }]} />
       </Animated.View>
       {STEPS.slice(0, step + 1).map((label, i) => (
-        <Line key={label} title={label} color={i < step ? C.mint : C.lemon} right={i < step ? 'done' : bounce} last={i === step} />
+        <Line key={label} title={t(label)} color={i < step ? C.mint : C.lemon} right={i < step ? t('done') : bounce} last={i === step} />
       ))}
     </View>
   );
@@ -327,7 +329,7 @@ function Searching({ color }: { color: string }) {
 function Thumb({ uri, size, label, onPress }: { uri: string | null; size: number; label: string; onPress: () => void }) {
   if (!uri) return null;
   return (
-    <Pressable accessibilityRole="imagebutton" accessibilityLabel={`Show ${label}`} onPress={onPress} style={{ width: size, height: size, borderRadius: size > 60 ? 16 : 10, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper, overflow: 'hidden' }}>
+    <Pressable accessibilityRole="imagebutton" accessibilityLabel={t('show', { name: label })} onPress={onPress} style={{ width: size, height: size, borderRadius: size > 60 ? 16 : 10, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper, overflow: 'hidden' }}>
       <Image source={{ uri }} resizeMode="contain" style={{ width: size - 4, height: size - 4, backgroundColor: '#f1f1f3' }} />
     </Pressable>
   );
@@ -352,11 +354,11 @@ function ProductPopup({ items, start, onClose, pinned, onPin }: { items: Product
     <Modal visible={start != null} transparent animationType="fade" onRequestClose={onClose} onDismiss={openPending}>
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 16 }}>
         {/* the backdrop is a sibling behind the card, so the card's own touches (paging, buttons) never reach it */}
-        <Pressable accessibilityLabel="Close" onPress={onClose} style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(11,11,12,0.55)' }} />
+        <Pressable accessibilityLabel={t('close')} onPress={onClose} style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(11,11,12,0.55)' }} />
         <View style={{ backgroundColor: C.paper, borderRadius: 28, borderWidth: 2, borderColor: C.ink, overflow: 'hidden' }}>
           <View style={[s.row, { paddingHorizontal: 16, paddingTop: 14 }]}>
             <Mono>{items.length > 1 ? `${page + 1} / ${items.length}` : ''}</Mono>
-            <Round icon="close" label="Close" onPress={onClose} />
+            <Round icon="close" label={t('close')} onPress={onClose} />
           </View>
           <ScrollView
             horizontal
@@ -373,7 +375,7 @@ function ProductPopup({ items, start, onClose, pinned, onPin }: { items: Product
                   <Image source={{ uri: rec.image_url }} resizeMode="contain" style={{ width: PAGE - 32, height: 280, borderRadius: 16, backgroundColor: '#f1f1f3' }} />
                 ) : (
                   <View style={{ width: PAGE - 32, height: 280, borderRadius: 16, backgroundColor: '#f1f1f3', alignItems: 'center', justifyContent: 'center' }}>
-                    <Mono mute>No image</Mono>
+                    <Mono mute>{t('noImage')}</Mono>
                   </View>
                 )}
                 <Name numberOfLines={3} style={{ fontSize: 24, lineHeight: 27, letterSpacing: -0.8 }}>
@@ -382,11 +384,11 @@ function ProductPopup({ items, start, onClose, pinned, onPin }: { items: Product
                 <Text style={[s.price, { fontSize: 52, lineHeight: 54, letterSpacing: -2.4 }]} adjustsFontSizeToFit numberOfLines={1}>
                   {eur(rec.total_eur)}
                 </Text>
-                <Mono>{['incl. shipping', rec.merchant, rec.delivery_estimate].filter(Boolean).join(' · ')}</Mono>
+                <Mono>{[t('inclShipping'), rec.merchant, rec.delivery_estimate].filter(Boolean).join(' · ')}</Mono>
                 {onPin && <PinPill pinned={!!pinned?.(rec)} onPress={() => onPin(rec)} />}
                 {rec.offer_url && (
                   <Btn
-                    label="Open offer"
+                    label={t('openOffer')}
                     onPress={() => {
                       // the popup closes first: iOS only presents the browser sheet once the modal is gone
                       pending.current = rec.offer_url;
@@ -421,7 +423,7 @@ const PriceRow = ({ rec }: { rec: Recommendation }) => (
     {rec.price_eur != null && (
       <Mono style={{ textAlign: 'right', paddingBottom: 8 }}>
         {eur(rec.price_eur)}
-        {'\n'}+ {eur(rec.shipping_eur ?? 0)} shipping
+        {'\n'}{t('plusShipping', { price: eur(rec.shipping_eur ?? 0) })}
       </Mono>
     )}
   </View>
@@ -439,15 +441,15 @@ function Turn({ person, result, onOpen, onPin }: { person: Person; result: Resul
       {result.status === 'ideas_only' && result.understood && (
         <Stamps>
           {result.understood.candidates.map((c, i) => (
-            <Stamp key={i} i={i} label="Idea" value={c.idea} />
+            <Stamp key={i} i={i} label={t('idea')} value={c.idea} />
           ))}
         </Stamps>
       )}
       {top && (
-        <Tag color={person.color} onPress={onOpen} label="Open the pick in detail" style={{ gap: 14, marginTop: 6 }}>
+        <Tag color={person.color} onPress={onOpen} label={t('openPick')} style={{ gap: 14, marginTop: 6 }}>
           <View style={s.row}>
-            <Mono>For {person.name} · my pick</Mono>
-            <Mono>{ACTION[top.action] ?? ''}</Mono>
+            <Mono>{t('forPick', { name: person.name })}</Mono>
+            <Mono>{actionOf(top.action)}</Mono>
           </View>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
             <Name style={{ flex: 1, fontSize: 30, lineHeight: 32, letterSpacing: -1.2 }}>{top.product_name}</Name>
@@ -456,14 +458,14 @@ function Turn({ person, result, onOpen, onPin }: { person: Person; result: Resul
           <PinPill pinned={isPinned(person, top)} onPress={() => toggle(top)} />
           <PriceRow rec={top} />
           <SignalStamps rec={top} />
-          <Mono>{['Data from idealo', top.merchant, top.delivery_estimate].filter(Boolean).join(' · ')}</Mono>
-          <Btn label="See why and where to buy" onPress={onOpen} />
+          <Mono>{[t('dataIdealo'), top.merchant, top.delivery_estimate].filter(Boolean).join(' · ')}</Mono>
+          <Btn label={t('seeWhy')} onPress={onOpen} />
         </Tag>
       )}
       {top && result.alternatives.length > 0 && (
         <View>
           <Mono mute style={{ paddingBottom: 10 }}>
-            Also fits
+            {t('alsoFits')}
           </Mono>
           {result.alternatives.map((alt, i) => (
             <Line
@@ -488,19 +490,13 @@ function Turn({ person, result, onOpen, onPin }: { person: Person; result: Resul
   );
 }
 
-// Dictation language: German when the phone is set to German, English otherwise
-const DICTATION_LOCALE = (() => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('de') ? 'de-DE' : 'en-US';
-  } catch {
-    return 'en-US';
-  }
-})();
+// Dictation follows the app language
+const dictationLocale = () => (getLanguage() === 'de' ? 'de-DE' : 'en-US');
 
-const QUICK = ['Cheaper', 'Something else', 'They already have it'];
-const EXAMPLES = [
-  { label: 'WhatsApp chat', text: sampleChat.input_text },
-  { label: 'Amazon wishlist', text: 'https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ' },
+const QUICK: Key[] = ['quickCheaper', 'quickElse', 'quickHave'];
+const EXAMPLES: { label: Key; text: string }[] = [
+  { label: 'exampleChat', text: sampleChat.input_text },
+  { label: 'exampleAmazon', text: 'https://www.amazon.de/hz/wishlist/ls/2JPK0IGRX8OMJ' },
 ];
 
 // 3 Tell me about X, 4 Searching, 5 Thread and pick: one chat
@@ -557,7 +553,7 @@ export function Thread({
         setSession(null);
         if (problem) setMicNote(problem);
       },
-      DICTATION_LOCALE,
+      dictationLocale(),
     );
     if (started) setSession(started);
   };
@@ -577,8 +573,8 @@ export function Thread({
           onBack={onBack}
           title={`${person.name} · ${metaOf(person)}`}
           right={
-            <Pressable accessibilityRole="button" accessibilityLabel="More" onPress={onEdit} hitSlop={10} style={{ minWidth: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
-              <Mono>More</Mono>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('more')} onPress={onEdit} hitSlop={10} style={{ minWidth: 44, height: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
+              <Mono>{t('more')}</Mono>
             </Pressable>
           }
         />
@@ -594,18 +590,18 @@ export function Thread({
         {empty && (
           <>
             <Tag color={person.color} style={{ gap: 12, paddingBottom: 24 }}>
-              <Mono>Nothing on this tag yet</Mono>
-              <Name>Tell me about {person.name}.</Name>
-              <Body>Paste whatever you have: a wishlist link, a chat, or your own words. I read it and work out what they would love.</Body>
+              <Mono>{t('nothingYet')}</Mono>
+              <Name>{t('tellMe', { name: person.name })}</Name>
+              <Body>{t('tellBody')}</Body>
             </Tag>
-            <Mono mute>Dictation works too: tap the mic on your keyboard.</Mono>
+            <Mono mute>{t('dictationHint')}</Mono>
           </>
         )}
         {person.messages.map((m, i) =>
           m.role === 'user' ? (
             <View key={i} style={{ gap: 8 }}>
-              {m.photo && <Image source={{ uri: m.photo }} accessibilityLabel="Your photo" style={{ alignSelf: 'flex-end', width: 160, height: 160, borderRadius: 20, borderWidth: 2, borderColor: C.ink }} />}
-              <Bubble note={m.text.length > 160 ? `${m.text.split('\n').length} lines` : undefined}>{m.text}</Bubble>
+              {m.photo && <Image source={{ uri: m.photo }} accessibilityLabel={t('yourPhoto')} style={{ alignSelf: 'flex-end', width: 160, height: 160, borderRadius: 20, borderWidth: 2, borderColor: C.ink }} />}
+              <Bubble note={m.text.length > 160 ? t('lines', { n: m.text.split('\n').length }) : undefined}>{m.text}</Bubble>
             </View>
           ) : (
             <View key={i} style={{ gap: 16 }} onLayout={(e) => i === person.messages.length - 1 && scroll.current?.scrollTo({ y: e.nativeEvent.layout.y - 12, animated: true })}>
@@ -614,38 +610,38 @@ export function Thread({
           ),
         )}
         {busy && <Searching color={person.color} />}
-        {error && !busy && <Say>That did not work. {error}</Say>}
+        {error && !busy && <Say>{t('failed', { error })}</Say>}
       </ScrollView>
       <View style={[pad, { gap: 10, paddingTop: 10, paddingBottom: insets.bottom + 8, backgroundColor: C.paper }]}>
         {!busy && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, alignItems: 'center' }}>
             {empty
-              ? EXAMPLES.map((e) => <Pill key={e.label} large label={e.label} onPress={() => setText(e.text)} />)
-              : QUICK.map((q) => <Pill key={q} large label={q} onPress={() => send(q)} />)}
+              ? EXAMPLES.map((e) => <Pill key={e.label} large label={t(e.label)} onPress={() => setText(e.text)} />)
+              : QUICK.map((q) => <Pill key={q} large label={t(q)} onPress={() => send(t(q))} />)}
           </ScrollView>
         )}
         {micNote === 'denied' && canOpenSettings ? (
           <Pressable accessibilityRole="button" onPress={() => openSettings()}>
-            <Mono>Dictation needs the microphone and speech recognition. Tap to open Settings.</Mono>
+            <Mono>{t('micSettings')}</Mono>
           </Pressable>
         ) : (
-          micNote && <Mono>{micNote === 'denied' ? 'Dictation needs microphone access. Allow it in the browser and try again.' : micNote}</Mono>
+          micNote && <Mono>{micNote === 'denied' ? t('micBrowser') : micNote}</Mono>
         )}
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
           <TextInput
             // a multiline input keeps its grown height after clearing, so it is remounted per message
             key={person.messages.length}
-            accessibilityLabel="Message"
+            accessibilityLabel={t('message')}
             multiline
             value={text}
             onChangeText={setText}
-            placeholder={empty ? 'Paste a wishlist link, a chat, or describe them' : `Tell me more about ${person.name} …`}
+            placeholder={empty ? t('placeholderFirst') : t('placeholderMore', { name: person.name })}
             placeholderTextColor={C.mute}
             style={s.input}
           />
-          {!busy && <Round icon="camera" label="Snap a product" size={52} onPress={onSnap} />}
-          {speechAvailable() && <Round icon="mic" label={session ? 'Stop dictation' : 'Dictate'} size={52} fill={session ? C.tomato : undefined} onPress={toggleMic} />}
-          <Round icon="send" label="Send" ink size={52} onPress={() => send()} />
+          {!busy && <Round icon="camera" label={t('snapProduct')} size={52} onPress={onSnap} />}
+          {speechAvailable() && <Round icon="mic" label={session ? t('stopDictation') : t('dictate')} size={52} fill={session ? C.tomato : undefined} onPress={toggleMic} />}
+          <Round icon="send" label={t('send')} ink size={52} onPress={() => send()} />
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -677,35 +673,35 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
     camera.current
       ?.takePictureAsync({ base64: true, quality: 0.4 })
       .then(got)
-      .catch((e) => setNote(`The photo did not work: ${e?.message ?? e}`));
+      .catch((e) => setNote(t('photoFailed', { error: e?.message ?? e })));
   const upload = () =>
     ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, base64: true })
       .then((r) => got(r.assets?.[0]))
-      .catch((e) => setNote(`The photo did not open: ${e?.message ?? e}`));
+      .catch((e) => setNote(t('photoNotOpened', { error: e?.message ?? e })));
 
   if (photo)
     return (
       <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
-        <TopBar onBack={() => setPhoto(null)} title="From your photo" />
+        <TopBar onBack={() => setPhoto(null)} title={t('fromPhoto')} />
         <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-end' }}>
-          <Image source={{ uri: photo.uri }} accessibilityLabel="Your photo" style={{ width: 104, height: 132, borderRadius: 18, borderWidth: 2, borderColor: C.ink, transform: [{ rotate: '-3deg' }] }} />
-          <Say style={{ flex: 1 }}>Got it. Whose tag does it go on?</Say>
+          <Image source={{ uri: photo.uri }} accessibilityLabel={t('yourPhoto')} style={{ width: 104, height: 132, borderRadius: 18, borderWidth: 2, borderColor: C.ink, transform: [{ rotate: '-3deg' }] }} />
+          <Say style={{ flex: 1 }}>{t('whoseTag')}</Say>
         </View>
-        {people.length === 0 && <Body>There is no tag yet. Add someone first, then snap again.</Body>}
+        {people.length === 0 && <Body>{t('noTagYet')}</Body>}
         {people.map((p) => (
-          <Tag key={p.id} color={p.color} label={`Add to ${p.name}'s tag`} onPress={() => onDone(photo, p.id)} style={{ gap: 4 }}>
+          <Tag key={p.id} color={p.color} label={t('addToTag', { name: p.name })} onPress={() => onDone(photo, p.id)} style={{ gap: 4 }}>
             <Name>{p.name}</Name>
             <Mono>{metaOf(p)}</Mono>
           </Tag>
         ))}
-        <Btn secondary label="Not it, try again" onPress={() => setPhoto(null)} />
+        <Btn secondary label={t('notIt')} onPress={() => setPhoto(null)} />
       </ScrollView>
     );
 
   return (
     <View style={[pad, { flex: 1, gap: 16, paddingBottom: insets.bottom + 16 }]}>
-      <TopBar onBack={onBack} title={person ? `Snap for ${person.name}` : 'Snap'} />
-      <Text style={s.display}>Seen something good?</Text>
+      <TopBar onBack={onBack} title={person ? t('snapFor', { name: person.name }) : t('snap')} />
+      <Text style={s.display}>{t('seenGood')}</Text>
       <View style={{ flex: 1, borderWidth: 2, borderColor: C.ink, borderRadius: 28, backgroundColor: C.ink, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
         {permission?.granted && <CameraView ref={camera} facing="back" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />}
         {/* the four lemon corners of the viewfinder */}
@@ -715,19 +711,19 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
           )),
         )}
         {permission?.granted ? (
-          <Text style={[s.say, { color: '#fff', textAlign: 'center', paddingHorizontal: 48, fontSize: 22, lineHeight: 26, opacity: 0.9 }]}>Point at a product, a shop window or a screenshot.</Text>
+          <Text style={[s.say, { color: '#fff', textAlign: 'center', paddingHorizontal: 48, fontSize: 22, lineHeight: 26, opacity: 0.9 }]}>{t('pointAt')}</Text>
         ) : (
           <Pressable accessibilityRole="button" onPress={() => (permission?.canAskAgain || !canOpenSettings ? ask() : openSettings())} style={{ padding: 40 }}>
-            <Text style={[s.say, { color: '#fff', textAlign: 'center', fontSize: 22, lineHeight: 26 }]}>The camera is off for Wishfit. Tap to allow it, or upload a photo.</Text>
+            <Text style={[s.say, { color: '#fff', textAlign: 'center', fontSize: 22, lineHeight: 26 }]}>{t('cameraOff')}</Text>
           </Pressable>
         )}
       </View>
       {note && <Mono>{note}</Mono>}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
-          <Pill large label="Upload photo" onPress={upload} />
+          <Pill large label={t('uploadPhoto')} onPress={upload} />
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Take photo" disabled={!permission?.granted} onPress={shoot} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 2, borderColor: C.ink, backgroundColor: C.lemon, alignItems: 'center', justifyContent: 'center', opacity: permission?.granted ? 1 : 0.4 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('takePhoto')} disabled={!permission?.granted} onPress={shoot} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 2, borderColor: C.ink, backgroundColor: C.lemon, alignItems: 'center', justifyContent: 'center', opacity: permission?.granted ? 1 : 0.4 }}>
           <View style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper }} />
         </Pressable>
         <View style={{ flex: 1 }} />
@@ -744,7 +740,7 @@ export function Detail({ person, result, onBack, onPin }: { person: Person | nul
   if (!top) {
     return (
       <View style={[pad, { gap: 16 }]}>
-        <TopBar onBack={onBack} title="No pick yet" />
+        <TopBar onBack={onBack} title={t('noPick')} />
         <Say>{sayOf(result)}</Say>
       </View>
     );
@@ -757,7 +753,7 @@ export function Detail({ person, result, onBack, onPin }: { person: Person | nul
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
-        <TopBar onBack={onBack} title={person ? `For ${person.name} · my pick` : 'My pick'} />
+        <TopBar onBack={onBack} title={person ? t('forPick', { name: person.name }) : t('myPick')} />
         <ProductPopup
           items={[top, ...result.alternatives]}
           start={popup}
@@ -766,48 +762,48 @@ export function Detail({ person, result, onBack, onPin }: { person: Person | nul
           onPin={person && onPin ? (item) => onPin(item, result.id) : undefined}
         />
         {top.image_url && (
-          <Pressable accessibilityRole="imagebutton" accessibilityLabel={`Show ${top.product_name}`} onPress={() => setPopup(0)} style={{ height: 220, borderRadius: 16, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper, overflow: 'hidden' }}>
+          <Pressable accessibilityRole="imagebutton" accessibilityLabel={t('show', { name: top.product_name })} onPress={() => setPopup(0)} style={{ height: 220, borderRadius: 16, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper, overflow: 'hidden' }}>
             <Image source={{ uri: top.image_url }} resizeMode="contain" style={{ width: '100%', height: 216, backgroundColor: '#f1f1f3' }} />
           </Pressable>
         )}
         <Tag color={person?.color ?? C.lemon} style={{ gap: 14, marginTop: 4 }}>
           <View style={s.row}>
-            <Mono>{ACTION[top.action] ?? ''}</Mono>
+            <Mono>{actionOf(top.action)}</Mono>
             {person && onPin && <PinPill pinned={isPinned(person, top)} onPress={() => onPin(top, result.id)} />}
           </View>
           <Name style={{ fontSize: 30, lineHeight: 32, letterSpacing: -1.2 }}>{top.product_name}</Name>
           <PriceRow rec={top} />
         </Tag>
         <View style={{ gap: 8 }}>
-          <Mono mute>Why this one</Mono>
+          <Mono mute>{t('whyThis')}</Mono>
           <Say style={{ maxWidth: '100%', fontSize: 24, lineHeight: 27 }}>{top.reason}</Say>
           {quote && (
             <View style={[s.bubble, { alignSelf: 'flex-start', borderBottomRightRadius: 22, borderBottomLeftRadius: 4, marginTop: 4 }]}>
-              <Mono style={{ color: '#fff', opacity: 0.7 }}>From what you told me</Mono>
+              <Mono style={{ color: '#fff', opacity: 0.7 }}>{t('fromYou')}</Mono>
               <Body style={{ color: '#fff' }}>{quote}</Body>
             </View>
           )}
         </View>
         {top.signals.length > 0 && (
           <View style={{ gap: 8 }}>
-            <Mono mute>The data behind it · idealo</Mono>
+            <Mono mute>{t('dataBehind')}</Mono>
             <SignalStamps rec={top} />
           </View>
         )}
         <View>
           <Mono mute style={{ paddingBottom: 10 }}>
-            Price
+            {t('price')}
           </Mono>
-          <Line title="Price" sub={top.merchant ?? undefined} right={eur(top.price_eur)} />
-          <Line title="Shipping" sub={top.delivery_estimate ? `Delivery: ${top.delivery_estimate}` : undefined} right={eur(top.shipping_eur)} color={C.lemon} />
-          <Line title="Total" sub={person ? `of ${eur(person.budget)} budget` : undefined} right={eur(top.total_eur)} color={person?.color ?? C.tomato} last />
+          <Line title={t('price')} sub={top.merchant ?? undefined} right={eur(top.price_eur)} />
+          <Line title={t('shipping')} sub={top.delivery_estimate ? t('delivery', { when: top.delivery_estimate }) : undefined} right={eur(top.shipping_eur)} color={C.lemon} />
+          <Line title={t('total')} sub={person ? t('ofBudget', { price: eur(person.budget) }) : undefined} right={eur(top.total_eur)} color={person?.color ?? C.tomato} last />
         </View>
         <Mono mute style={{ textAlign: 'center' }}>
-          Decided by {result.model}
+          {t('decidedBy', { model: result.model })}
         </Mono>
       </ScrollView>
       <View style={[pad, { paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
-        {top.offer_url ? <Btn label={`Open offer · ${eur(top.total_eur)}`} onPress={() => openLink(top.offer_url!)} /> : <Mono mute style={{ textAlign: 'center' }}>No offer link for this pick</Mono>}
+        {top.offer_url ? <Btn label={t('openOfferPrice', { price: eur(top.total_eur) })} onPress={() => openLink(top.offer_url!)} /> : <Mono mute style={{ textAlign: 'center' }}>{t('noOfferLink')}</Mono>}
       </View>
     </View>
   );

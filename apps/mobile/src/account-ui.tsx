@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
 
 import { explain, type Account } from './account';
+import { t } from './i18n';
 import { C } from './theme';
 import { Body, Btn, Mono, Pill, s } from './ui';
 
@@ -32,66 +33,66 @@ export function AccountPanel({ account }: { account: Account }) {
       await account.requestCode(email);
       setCode('');
       setStep('code');
-    }, "I can't send the code right now.");
+    }, t('cantSendCode'));
   const confirm = () =>
     run(async () => {
       await account.verify(email, code);
       setStep('idle');
       setEmail('');
       setCode('');
-    }, 'That did not work. Try again.');
+    }, t('tryAgain'));
 
   const askDelete = () => {
-    const del = () => run(account.deleteAccount, "I can't delete the account right now.");
-    const text = 'This deletes your account and the synced data on the server. Your people and wishlist stay on this phone.';
+    const del = () => run(account.deleteAccount, t('cantDelete'));
+    const text = t('deleteText');
     if (Platform.OS === 'web') {
       if (window.confirm(text)) del();
       return;
     }
-    Alert.alert('Delete account?', text, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete account', style: 'destructive', onPress: del },
+    Alert.alert(t('deleteAsk'), text, [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('deleteAccount'), style: 'destructive', onPress: del },
     ]);
   };
 
   if (account.session) {
     return (
       <View style={{ gap: 10 }}>
-        <Mono mute>Account</Mono>
-        <Body accessibilityLabel="Signed in as">{account.session.email}</Body>
-        <Mono mute>{account.syncError ?? (account.syncing ? 'Syncing…' : 'Synced')}</Mono>
-        {account.notStored && <Mono mute>Your sign-in could not be saved on this device. You stay signed in until you close the app.</Mono>}
+        <Mono mute>{t('account')}</Mono>
+        <Body accessibilityLabel={t('signedInAs')}>{account.session.email}</Body>
+        <Mono mute>{account.syncError ?? (account.syncing ? t('syncing') : t('synced'))}</Mono>
+        {account.notStored && <Mono mute>{t('notStored')}</Mono>}
         {note && <Mono style={{ color: C.tomato }}>{note}</Mono>}
-        <Btn label="Sign out" secondary disabled={busy} onPress={() => run(account.signOut, 'Could not sign out.')} />
-        <Btn label="Delete account" secondary disabled={busy} onPress={askDelete} />
+        <Btn label={t('signOut')} secondary disabled={busy} onPress={() => run(account.signOut, t('cantSignOut'))} />
+        <Btn label={t('deleteAccount')} secondary disabled={busy} onPress={askDelete} />
       </View>
     );
   }
 
   return (
     <View style={{ gap: 10 }}>
-      <Mono mute>Account</Mono>
+      <Mono mute>{t('account')}</Mono>
       {step === 'idle' && (
         <>
-          <Body style={{ color: C.mute }}>Sign in to keep your people and wishlist on every device.</Body>
-          <Btn label="Sign in to sync" secondary onPress={() => setStep('email')} />
+          <Body style={{ color: C.mute }}>{t('signInPitch')}</Body>
+          <Btn label={t('signInSync')} secondary onPress={() => setStep('email')} />
         </>
       )}
       {step === 'email' && (
         <>
-          <TextInput accessibilityLabel="E-mail" value={email} onChangeText={setEmail} onSubmitEditing={sendCode} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="emailAddress" returnKeyType="send" placeholder="you@example.com" placeholderTextColor={C.mute} style={field} />
-          <Btn label="Send code" disabled={busy || !email.includes('@')} onPress={sendCode} />
+          <TextInput accessibilityLabel={t('email')} value={email} onChangeText={setEmail} onSubmitEditing={sendCode} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="emailAddress" returnKeyType="send" placeholder="you@example.com" placeholderTextColor={C.mute} style={field} />
+          <Btn label={t('sendCode')} disabled={busy || !email.includes('@')} onPress={sendCode} />
         </>
       )}
       {step === 'code' && (
         <>
-          <Body>We sent a 6-digit code to {email.trim()}.</Body>
-          {account.devCode && <Mono accessibilityLabel="Test code">Test mode: your code is {account.devCode}</Mono>}
-          <TextInput accessibilityLabel="Code" value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))} onSubmitEditing={confirm} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} placeholder="123456" placeholderTextColor={C.mute} style={field} />
-          <Btn label="Sign in" disabled={busy || code.length !== 6} onPress={confirm} />
+          <Body>{t('codeSent', { email: email.trim() })}</Body>
+          {account.devCode && <Mono accessibilityLabel={t('testCodeLabel')}>{t('testCode', { code: account.devCode })}</Mono>}
+          <TextInput accessibilityLabel={t('code')} value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))} onSubmitEditing={confirm} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} placeholder="123456" placeholderTextColor={C.mute} style={field} />
+          <Btn label={t('signIn')} disabled={busy || code.length !== 6} onPress={confirm} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Pill label="Send again" onPress={sendCode} />
-            <Pill label="Other e-mail" onPress={() => { setStep('email'); setNote(null); }} />
+            <Pill label={t('sendAgain')} onPress={sendCode} />
+            <Pill label={t('otherEmail')} onPress={() => { setStep('email'); setNote(null); }} />
           </View>
         </>
       )}

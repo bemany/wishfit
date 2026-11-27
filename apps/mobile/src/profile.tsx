@@ -11,70 +11,34 @@ import { Body, Btn, Mono, Name, Pill, Tag, TopBar, s } from './ui';
 
 // Wishlist import, price tracker, profile link and friends; see openspec/changes/profile-link-friends and docs/api.md
 
-// Texts of these screens in one place
-export const T = {
-  myWishlist: 'My wishlist',
-  noWishes: 'Nothing here yet. Paste a wishlist link or add the first thing you would love to get.',
-  noFriendWishes: 'No wishes on this tag yet.',
-  pasteLink: 'Paste a wishlist link',
-  pastePlaceholder: 'amazon.de/hz/wishlist/…',
-  import: 'Import',
-  importing: 'Importing …',
-  imported: (n: number) => (n === 0 ? 'Nothing new on that list.' : n === 1 ? '1 wish added.' : `${n} wishes added.`),
-  addWish: 'Add a wish',
-  addPlaceholder: 'A wish in your own words',
-  send: 'Send my tag to friends',
-  sendHint: 'Friends who open your link see your wishes with prices and can add you.',
-  signInFirst: 'Sign in below first, then you can send your tag.',
-  shared: 'Your tag is shared',
-  copy: 'Copy link',
-  copied: 'Link copied.',
-  copyHint: 'Touch and hold the link to copy it.',
-  shareAgain: 'Send again',
-  stop: 'Stop sharing',
-  stopHint: 'The old link stops working. Sending again makes a new one.',
-  shareFailed: 'That did not work. Try again.',
-  loading: 'Loading …',
-  gone: 'No longer shared. The wishes below are the last ones you saw.',
-  goneProfile: 'This tag is no longer shared.',
-  notReachable: 'I could not load this tag. Try again later.',
-  addFriend: 'Add as friend',
-  openFriend: (name: string) => `Open ${name}`,
-  openApp: 'Open in the app',
-  theirTag: 'A shared tag',
-  thatsYou: "That's you. This is how friends see your tag.",
-  wishesOf: (name: string) => `${name}'s wishes`,
-};
-
 // Status line: where the wish came from, then what idealo says about its price
-const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
 export function statusOf(w: Wish, mine: boolean): string {
   const from =
     w.source === 'amazon'
       ? mine
-        ? 'From my Amazon wishlist'
-        : 'From an Amazon wishlist'
+        ? t('fromMyAmazon')
+        : t('fromAmazon')
       : w.source === 'snap'
         ? w.added_at
-          ? `Snapped on ${DAY.format(new Date(w.added_at))}`
-          : 'Snapped'
+          ? t('snappedOn', { date: new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).format(new Date(w.added_at)) })
+          : t('snapped')
         : w.source === 'link'
-          ? 'From a link'
-          : 'Typed in';
+          ? t('fromLink')
+          : t('typedIn');
   const p = w.price;
   const pct = p?.change_percent != null ? Math.round(Math.abs(p.change_percent)) : null;
   const price =
     !p || p.price_eur == null
-      ? 'no price data yet'
+      ? t('noPriceYet')
       : p.trend === 'down' && pct != null
-        ? `price down ${pct}\u00a0% in 30 days`
+        ? t('priceDown', { n: pct })
         : p.trend === 'up' && pct != null
-          ? `price up ${pct}\u00a0% in 30 days`
+          ? t('priceUp', { n: pct })
           : (p.offer_count ?? 0) > 1
-            ? `in stock at ${p.offer_count} shops`
+            ? t('inShops', { n: p.offer_count! })
             : p.trend === 'stable'
-              ? 'price stable'
-              : 'in stock';
+              ? t('priceStable')
+              : t('inStock');
   return `${from} · ${price}`;
 }
 const priceOf = (w: Wish) => w.price?.price_eur ?? w.price_eur ?? null;
@@ -119,11 +83,11 @@ export const mergeWishes = (current: Wish[], incoming: Wish[]): Wish[] =>
 
 const importError = (e: unknown) =>
   !(e instanceof ApiError)
-    ? 'That did not work. Try again.'
+    ? t('tryAgain')
     : e.status === 429
-      ? 'Too many imports. Wait a minute and try again.'
+      ? t('importTooMany')
       : e.status === 502
-        ? 'Amazon did not answer. Try again in a moment.'
+        ? t('importAmazonDown')
         : e.message; // 422 carries a readable reason in the device language
 
 // --- public profile --------------------------------------------------------------
@@ -192,7 +156,7 @@ export function WishRow({ wish, mine, color, last, onRemove }: { wish: Wish; min
       </View>
       {price != null && <Text style={[s.lineTitle, { fontSize: 18 }]}>{eur(price)}</Text>}
       {onRemove && (
-        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${wish.title}`} onPress={onRemove} style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('removeWish', { name: wish.title })} onPress={onRemove} style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontFamily: F.bold, fontSize: 24, lineHeight: 26, color: C.ink }}>×</Text>
         </Pressable>
       )}
@@ -224,7 +188,7 @@ export function ImportBox({ onImported }: { onImported: (wishes: Wish[]) => numb
     try {
       const added = onImported(await importWishlist(url));
       setOk(true);
-      setNote(T.imported(added));
+      setNote((added === 0 ? t('importedNone') : added === 1 ? t('importedOne') : t('importedMany', { n: added })));
       setUrl('');
     } catch (e) {
       setOk(false);
@@ -235,10 +199,10 @@ export function ImportBox({ onImported }: { onImported: (wishes: Wish[]) => numb
   };
   return (
     <View style={{ gap: 8 }}>
-      <Mono mute>{T.pasteLink}</Mono>
+      <Mono mute>{t('pasteLink')}</Mono>
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         <TextInput
-          accessibilityLabel={T.pasteLink}
+          accessibilityLabel={t('pasteLink')}
           value={url}
           onChangeText={setUrl}
           onSubmitEditing={run}
@@ -246,11 +210,11 @@ export function ImportBox({ onImported }: { onImported: (wishes: Wish[]) => numb
           autoCorrect={false}
           keyboardType="url"
           returnKeyType="go"
-          placeholder={T.pastePlaceholder}
+          placeholder={t('pastePlaceholder')}
           placeholderTextColor={C.mute}
           style={[s.input, { paddingTop: 0, paddingBottom: 0 }]}
         />
-        <Pill large label={busy ? T.importing : T.import} onPress={busy ? undefined : run} />
+        <Pill large label={busy ? t('importing') : t('import')} onPress={busy ? undefined : run} />
       </View>
       {note && <Mono style={{ color: ok ? C.ink : C.tomato }}>{note}</Mono>}
     </View>
@@ -264,7 +228,7 @@ export function SharePanel({ me, account, onChange, onNeedSignIn }: { me: Me; ac
   const signedIn = !!account.session;
   const share = async () => {
     if (!signedIn) {
-      setNote(T.signInFirst);
+      setNote(t('signInFirst'));
       return onNeedSignIn();
     }
     setBusy(true);
@@ -272,9 +236,9 @@ export function SharePanel({ me, account, onChange, onNeedSignIn }: { me: Me; ac
     try {
       const r = await call<{ slug: string; url: string }>('POST', '/me/share');
       if (me.share?.slug !== r.slug || me.share?.url !== r.url) onChange({ ...me, share: { slug: r.slug, url: r.url } });
-      await shareText(`${me.name.trim() ? `${me.name.trim()}'s` : 'My'} wishlist on Wishfit: ${r.url}`);
+      await shareText(me.name.trim() ? t('shareText', { name: me.name.trim(), url: r.url }) : t('shareTextMine', { url: r.url }));
     } catch {
-      setNote(T.shareFailed);
+      setNote(t('tryAgain'));
     } finally {
       setBusy(false);
     }
@@ -286,39 +250,39 @@ export function SharePanel({ me, account, onChange, onNeedSignIn }: { me: Me; ac
       await call('DELETE', '/me/share');
       onChange({ ...me, share: null });
     } catch {
-      setNote(T.shareFailed);
+      setNote(t('tryAgain'));
     } finally {
       setBusy(false);
     }
   };
   const copy = async () => {
     if (!me.share) return;
-    setNote((await copyText(me.share.url)) ? T.copied : T.copyHint);
+    setNote((await copyText(me.share.url)) ? t('copied') : t('copyHint'));
   };
   return (
     <View style={{ gap: 10 }}>
       {signedIn && me.share ? (
         <View style={{ gap: 10, padding: 16, borderRadius: 22, borderWidth: 2, borderColor: C.ink }}>
-          <Mono>{T.shared}</Mono>
+          <Mono>{t('shared')}</Mono>
           <Text selectable style={[s.body, { fontFamily: F.semi }]}>
             {me.share.url}
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <Pill large label={T.shareAgain} onPress={busy ? undefined : share} />
-            <Pill large label={T.copy} onPress={copy} />
-            <Pill large label={T.stop} onPress={busy ? undefined : stop} />
+            <Pill large label={t('shareAgain')} onPress={busy ? undefined : share} />
+            <Pill large label={t('copy')} onPress={copy} />
+            <Pill large label={t('stopSharing')} onPress={busy ? undefined : stop} />
           </View>
-          <Mono mute>{T.stopHint}</Mono>
+          <Mono mute>{t('stopHint')}</Mono>
         </View>
       ) : (
         <>
-          <Btn label={T.send} disabled={busy} onPress={share} />
+          <Btn label={t('sendTag')} disabled={busy} onPress={share} />
           <Mono mute style={{ textAlign: 'center' }}>
-            {T.sendHint}
+            {t('sendHint')}
           </Mono>
         </>
       )}
-      {note && <Mono style={{ color: note === T.copied ? C.ink : C.tomato }}>{note}</Mono>}
+      {note && <Mono style={{ color: note === t('copied') ? C.ink : C.tomato }}>{note}</Mono>}
     </View>
   );
 }
@@ -358,31 +322,31 @@ export function ProfileView({ slug, people, mine, onBack, onAdd, onOpen }: { slu
   const insets = useSafeAreaInsets();
   const known = people.find((p) => p.friendSlug === slug);
   const profile = state?.profile;
-  const name = profile?.name.trim() || 'Your friend';
+  const name = profile?.name.trim() || t('yourFriend');
   const color = profile?.color && TAG_COLORS.includes(profile.color) ? profile.color : TAG_COLORS[2];
   return (
     <View style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: 16 }}>
-        <TopBar onBack={onBack} title={T.theirTag} />
+        <TopBar onBack={onBack} title={t('theirTag')} />
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, gap: 16, paddingTop: 12, paddingBottom: insets.bottom + 24 }}>
         {!state ? (
-          <Mono mute>{T.loading}</Mono>
+          <Mono mute>{t('loading')}</Mono>
         ) : !profile ? (
-          <Body>{state.error ? T.notReachable : T.goneProfile}</Body>
+          <Body>{state.error ? t('notReachable') : t('goneProfile')}</Body>
         ) : (
           <>
             <Tag color={color} style={{ gap: 8 }}>
               <View style={s.row}>
-                <Mono>Shared tag</Mono>
-                <Mono>{profile.wishes.length === 1 ? '1 wish' : `${profile.wishes.length} wishes`}</Mono>
+                <Mono>{t('sharedTag')}</Mono>
+                <Mono>{wishCount(profile.wishes.length)}</Mono>
               </View>
               <Name numberOfLines={1}>{name}</Name>
             </Tag>
-            {mine ? <Body>{T.thatsYou}</Body> : known ? <Btn label={T.openFriend(known.name)} onPress={() => onOpen(known)} /> : <Btn label={T.addFriend} onPress={() => onAdd(profile)} />}
-            {isWeb && <Btn secondary label={T.openApp} onPress={() => window.location.assign(appLink(slug))} />}
-            <Mono mute>{T.wishesOf(name)}</Mono>
-            <WishList wishes={profile.wishes} mine={false} color={color} empty={T.noFriendWishes} />
+            {mine ? <Body>{t('thatsYou')}</Body> : known ? <Btn label={t('openFriend', { name: known.name })} onPress={() => onOpen(known)} /> : <Btn label={t('addFriend')} onPress={() => onAdd(profile)} />}
+            {isWeb && <Btn secondary label={t('openApp')} onPress={() => window.location.assign(appLink(slug))} />}
+            <Mono mute>{t('wishesOf', { name: name })}</Mono>
+            <WishList wishes={profile.wishes} mine={false} color={color} empty={t('noFriendWishes')} />
           </>
         )}
       </ScrollView>
@@ -398,11 +362,11 @@ export function FriendWishes({ person, gone }: { person: Person; gone: boolean }
   return (
     <View style={{ gap: 8 }}>
       <View style={s.row}>
-        <Mono mute>{T.wishesOf(person.name)}</Mono>
-        {wishes.length > 3 && <Pill label={open ? 'Less' : `All ${wishes.length}`} onPress={() => setOpen((o) => !o)} />}
+        <Mono mute>{t('wishesOf', { name: person.name })}</Mono>
+        {wishes.length > 3 && <Pill label={open ? t('less') : t('allN', { n: wishes.length })} onPress={() => setOpen((o) => !o)} />}
       </View>
-      {gone && <Mono style={{ color: C.tomato }}>{T.gone}</Mono>}
-      <WishList wishes={shown} mine={false} color={person.color} empty={T.noFriendWishes} />
+      {gone && <Mono style={{ color: C.tomato }}>{t('gone')}</Mono>}
+      <WishList wishes={shown} mine={false} color={person.color} empty={t('noFriendWishes')} />
     </View>
   );
 }

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
+import { t } from './i18n';
 import { C, F } from './theme';
 
 const ICONS = {
@@ -30,7 +31,7 @@ export function Bubble({ children, note }: { children: string; note?: string }) 
       <Text style={[s.body, { color: '#fff' }]} numberOfLines={note && open ? undefined : 3}>
         {children}
       </Text>
-      {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{open ? 'Tap to collapse' : `${note} · tap to expand`}</Mono>}
+      {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{open ? t('tapCollapse') : t('tapExpand', { note })}</Mono>}
     </Pressable>
   );
 }
@@ -84,7 +85,7 @@ export const Round = ({ icon, label, onPress, ink, size = 44, fill }: { icon: ke
 
 export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; title?: string; left?: ReactNode; right?: ReactNode }) => (
   <View style={s.top}>
-    {onBack ? <Round icon="back" label="Back" onPress={onBack} /> : left}
+    {onBack ? <Round icon="back" label={t('back')} onPress={onBack} /> : left}
     {title && (
       <Mono numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>
         {title}

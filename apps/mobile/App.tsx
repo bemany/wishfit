@@ -15,6 +15,7 @@ import { useAccount } from './src/account';
 import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
+import { t } from './src/i18n';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
@@ -119,7 +120,7 @@ function Root() {
         const last = p.messages.at(-1);
         return last?.role === 'user' && last.text === text ? { ...p, messages: p.messages.slice(0, -1) } : p;
       });
-      setError({ id: person.id, text: e instanceof Error ? e.message : 'Unknown error.' });
+      setError({ id: person.id, text: e instanceof Error ? e.message : t('unknownError') });
     } finally {
       setBusyId(null);
     }
@@ -139,7 +140,7 @@ function Root() {
     if (known) return setView({ name: 'thread', id: known.id });
     if (meRef.current.share?.slug === slug) return;
     // ponytail: occasion and budget are not on a shared tag; defaults the user can change under More
-    add({ name: profile.name.trim() || 'Friend', occasion: 'Birthday', budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
+    add({ name: profile.name.trim() || t('friend'), occasion: t('birthday'), budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
   };
 
   // Opening a friend's chat reloads their shared tag and the prices on it; 404 keeps the person with a note
@@ -273,7 +274,7 @@ function Root() {
             const to = people.find((p) => p.id === id);
             if (!to) return;
             setView({ name: 'thread', id });
-            send(to, 'What about this?', photo);
+            send(to, t('whatAbout'), photo);
           }}
         />
       ) : view.name === 'detail' ? (
