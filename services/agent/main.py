@@ -24,6 +24,7 @@ import amazon
 import auth
 import idealo
 import profiles
+import push
 import storage
 
 HERE = Path(__file__).parent
@@ -33,6 +34,7 @@ app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth.router)
 app.include_router(profiles.router)
+app.include_router(push.router)
 
 
 @app.middleware("http")
@@ -405,6 +407,13 @@ def price_for(session: str | None, title: str, deadline: float | None = None) ->
         "image_url": hit.get("image_url"),
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+@app.api_route("/cron/daily", methods=["GET", "POST"])  # Vercel cron calls with GET
+def cron_daily(request: Request) -> dict:
+    if not push.cron_authorized(request.headers.get("authorization")):
+        raise HTTPException(401, "unauthorized")
+    return push.run_daily(price_for, idealo.open_session)
 
 
 @app.post("/wishes/price")

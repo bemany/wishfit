@@ -27,6 +27,14 @@ SCHEMA = [
     " created_at timestamptz not null default now(), expires_at timestamptz not null)",
     "create table if not exists user_data (user_id uuid primary key references users(id) on delete cascade,"
     " people jsonb not null default '[]', profile jsonb, updated_at timestamptz not null)",
+    "create table if not exists devices (token text primary key,"
+    " user_id uuid not null references users(id) on delete cascade, platform text not null default 'ios',"
+    " created_at timestamptz not null default now(), last_ok_at timestamptz)",
+    "create index if not exists devices_user_idx on devices (user_id)",
+    "create table if not exists price_snapshots (key text primary key, price_eur double precision,"
+    " in_stock boolean not null, checked_at timestamptz not null)",
+    "create table if not exists alert_log (user_id uuid not null references users(id) on delete cascade,"
+    " alert_key text not null, sent_on date not null, primary key (user_id, alert_key))",
 ]
 # only run when the column is missing (an unconditional alter takes a lock on results at every cold start)
 RESULTS_USER_ID_CHECK = (
@@ -40,6 +48,12 @@ SLUG_CHECK = (
 )
 SLUG_ALTER = "alter table users add column profile_slug text unique"
 
+LANG_CHECK = (
+    "select 1 from information_schema.columns where table_schema = current_schema()"
+    " and table_name = 'users' and column_name = 'language'"
+)
+LANG_ALTER = "alter table users add column language text"
+
 _migrated = False
 _migrate_lock = threading.Lock()
 
@@ -52,6 +66,10 @@ _code_ids = itertools.count(1)
 _sessions: dict[str, dict] = {}
 _data: dict[str, dict] = {}
 _slugs: dict[str, str] = {}  # user id -> profile slug
+_langs: dict[str, str] = {}  # user id -> language
+_devices: dict[str, dict] = {}  # token -> {user_id, platform, last_ok_at}
+_snaps: dict[str, dict] = {}  # key -> {price_eur, in_stock, checked_at}
+_alerts: dict[tuple[str, str], str] = {}  # (user id, alert key) -> sent_on
 
 
 def use_postgres() -> bool:
@@ -85,6 +103,8 @@ def migrate() -> None:
                 conn.execute(RESULTS_USER_ID_ALTER)
             if conn.execute(SLUG_CHECK).fetchone() is None:
                 conn.execute(SLUG_ALTER)
+            if conn.execute(LANG_CHECK).fetchone() is None:
+                conn.execute(LANG_ALTER)
         _migrated = True
 
 
@@ -170,6 +190,11 @@ def delete_user(user_id: str) -> None:
                 del _sessions[k]
             _data.pop(user_id, None)
             _slugs.pop(user_id, None)
+            _langs.pop(user_id, None)
+            for t in [t for t, d in _devices.items() if d["user_id"] == user_id]:
+                del _devices[t]
+            for k in [k for k in _alerts if k[0] == user_id]:
+                del _alerts[k]
             for rid, (resp, trace, uid) in list(_results.items()):
                 if uid == user_id:
                     _results[rid] = (resp, trace, None)
@@ -397,3 +422,121 @@ def profile_owner(slug: str) -> str | None:
     with connect() as conn:
         row = conn.execute("select id from users where profile_slug = %s", (slug,)).fetchone()
         return str(row[0]) if row else None
+
+
+# --- language, devices, price snapshots, alert log ---------------------------
+
+
+def set_language(user_id: str, language: str) -> None:
+    if not use_postgres():
+        _langs[user_id] = language
+        return
+    with connect() as conn:
+        conn.execute("update users set language = %s where id = %s", (language, user_id))
+
+
+def get_language(user_id: str) -> str | None:
+    if not use_postgres():
+        return _langs.get(user_id)
+    with connect() as conn:
+        row = conn.execute("select language from users where id = %s", (user_id,)).fetchone()
+        return row[0] if row else None
+
+
+def add_device(user_id: str, token: str, platform: str = "ios") -> None:
+    """A token belongs to one account: registering it again moves it."""
+    if not use_postgres():
+        _devices[token] = {"user_id": user_id, "platform": platform, "last_ok_at": None}
+        return
+    with connect() as conn:
+        conn.execute(
+            "insert into devices (token, user_id, platform) values (%s, %s, %s)"
+            " on conflict (token) do update set user_id = excluded.user_id, platform = excluded.platform",
+            (token, user_id, platform),
+        )
+
+
+def remove_device(token: str, user_id: str | None = None) -> None:
+    """Delete a token; with user_id only when it belongs to that account."""
+    if not use_postgres():
+        d = _devices.get(token)
+        if d and (user_id is None or d["user_id"] == user_id):
+            del _devices[token]
+        return
+    with connect() as conn:
+        if user_id is None:
+            conn.execute("delete from devices where token = %s", (token,))
+        else:
+            conn.execute("delete from devices where token = %s and user_id = %s", (token, user_id))
+
+
+def devices_of(user_id: str) -> list[str]:
+    if not use_postgres():
+        return [t for t, d in _devices.items() if d["user_id"] == user_id]
+    with connect() as conn:
+        return [r[0] for r in conn.execute("select token from devices where user_id = %s", (user_id,)).fetchall()]
+
+
+def users_with_devices() -> list[str]:
+    if not use_postgres():
+        return sorted({d["user_id"] for d in _devices.values()})
+    with connect() as conn:
+        return [str(r[0]) for r in conn.execute("select distinct user_id from devices").fetchall()]
+
+
+def mark_device_ok(token: str) -> None:
+    if not use_postgres():
+        if token in _devices:
+            _devices[token]["last_ok_at"] = now()
+        return
+    with connect() as conn:
+        conn.execute("update devices set last_ok_at = %s where token = %s", (now(), token))
+
+
+def get_snapshots(keys: list[str]) -> dict[str, dict]:
+    if not keys:
+        return {}
+    if not use_postgres():
+        return {k: dict(_snaps[k]) for k in keys if k in _snaps}
+    with connect() as conn:
+        rows = conn.execute("select key, price_eur, in_stock from price_snapshots where key = any(%s)", (keys,)).fetchall()
+        return {r[0]: {"price_eur": r[1], "in_stock": r[2]} for r in rows}
+
+
+def put_snapshot(key: str, price_eur: float | None, in_stock: bool) -> None:
+    t = now()
+    if not use_postgres():
+        _snaps[key] = {"price_eur": price_eur, "in_stock": in_stock, "checked_at": t}
+        return
+    with connect() as conn:
+        conn.execute(
+            "insert into price_snapshots (key, price_eur, in_stock, checked_at) values (%s, %s, %s, %s)"
+            " on conflict (key) do update set price_eur = excluded.price_eur, in_stock = excluded.in_stock,"
+            " checked_at = excluded.checked_at",
+            (key, price_eur, in_stock, t),
+        )
+
+
+def alerts_seen(user_id: str, keys: list[str], today: str) -> tuple[set[str], bool]:
+    """Which of `keys` were already sent to this user, and whether anything went out on `today` (YYYY-MM-DD)."""
+    if not use_postgres():
+        mine = {k: d for (u, k), d in _alerts.items() if u == user_id}
+        return {k for k in keys if k in mine}, today in mine.values()
+    with connect() as conn:
+        seen = {r[0] for r in conn.execute(
+            "select alert_key from alert_log where user_id = %s and alert_key = any(%s)", (user_id, keys)).fetchall()}
+        sent = conn.execute("select 1 from alert_log where user_id = %s and sent_on = %s limit 1", (user_id, today)).fetchone()
+        return seen, sent is not None
+
+
+def log_alerts(user_id: str, keys: list[str], today: str) -> None:
+    if not use_postgres():
+        for k in keys:
+            _alerts.setdefault((user_id, k), today)
+        return
+    with connect() as conn:
+        for k in keys:
+            conn.execute(
+                "insert into alert_log (user_id, alert_key, sent_on) values (%s, %s, %s) on conflict do nothing",
+                (user_id, k, today),
+            )
