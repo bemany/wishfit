@@ -86,6 +86,27 @@ export default function LandingPage() {
 
       <HeroVideo src="/video/brag.mp4" poster="/video/brag.jpg" />
 
+      <section className="flex flex-col gap-6 rounded-[28px] border-2 border-[#0b0b0c] bg-[#ffd23f] p-6 sm:p-10">
+        <p className="gt-mono">Built in one day at the Agentic Hackathon Berlin</p>
+        <h2 className="gt-display text-3xl leading-tight tracking-tight sm:text-5xl">
+          A native iPhone app, running on a real device today. Android-capable from the same codebase.
+        </h2>
+        <p className="max-w-3xl text-lg leading-relaxed">
+          Wishfit is a working product, not a mockup: an iOS app built with React Native (Expo), installed on an iPhone
+          and talking to a live agent. The agent runs on the Nebius Token Factory and researches every gift idea in real
+          time through the idealo MCP. Because the app is React Native, the same code can ship to Android; the Android
+          build is the next step.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {["iOS app on device", "Android-capable codebase", "Live idealo data", "Agent on Nebius", "Reads chats and Amazon wishlists"].map((s) => (
+            <span key={s} className="rounded-lg border-2 border-[#0b0b0c] bg-white px-3 py-2 font-mono text-xs uppercase tracking-widest">
+              {s}
+            </span>
+          ))}
+        </div>
+        <p className="gt-display text-2xl sm:text-3xl">We would love to show it to you live.</p>
+      </section>
+
       <section id="how" className="flex scroll-mt-8 flex-col gap-8">
         <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">How it works</h2>
         <ol className="grid gap-5 md:grid-cols-3">
