@@ -24,6 +24,7 @@ import amazon
 import auth
 import idealo
 import profiles
+import push
 import storage
 
 HERE = Path(__file__).parent
@@ -33,6 +34,7 @@ app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth.router)
 app.include_router(profiles.router)
+app.include_router(push.router)
 
 
 @app.middleware("http")
@@ -368,7 +370,7 @@ def _trend(change_percent: float | None) -> str | None:
     return "down" if change_percent <= -TREND_THRESHOLD else "up" if change_percent >= TREND_THRESHOLD else "stable"
 
 
-def price_for(session: str | None, title: str, deadline: float | None = None) -> dict | None:
+def price_for(session: str | None, title: str, deadline: float | None = None, strict: bool = False) -> dict | None:
     """Best idealo hit for one wish: search (available only), then offers and 30-day history for a catalog hit.
     Single-merchant hits have neither offers list nor history (as in the recommend flow)."""
     trace = {"idealo_calls": []}  # the shared helper logs into a trace; not kept here
@@ -380,6 +382,8 @@ def price_for(session: str | None, title: str, deadline: float | None = None) ->
         return _idealo_call(session, tool, arguments, trace, summarize, timeout=left)
 
     hits = call("search_products", {"query": title.strip(), "filters": {"availableOnly": True}}, _search_summary)
+    if strict and not isinstance(hits, list):  # error dict or no time left: unknown, not "no hit"
+        raise push.PriceUnavailable(title)
     if not isinstance(hits, list) or not hits:
         return None
     hit = hits[0]
@@ -405,6 +409,15 @@ def price_for(session: str | None, title: str, deadline: float | None = None) ->
         "image_url": hit.get("image_url"),
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+@app.api_route("/cron/daily", methods=["GET", "POST"])  # Vercel cron calls with GET
+def cron_daily(request: Request) -> dict:
+    if not push.cron_authorized(request.headers.get("authorization")):
+        raise HTTPException(401, "unauthorized")
+    if not push.apns_configured():
+        raise HTTPException(503, "apns not configured")
+    return push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), idealo.open_session)
 
 
 @app.post("/wishes/price")

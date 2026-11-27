@@ -10,5 +10,7 @@ dependencies = [
     "python-dotenv",
     "psycopg[binary]",
     "mcp",
-    "httpx",
+    "httpx[http2]",
+    "cryptography",
+    "tzdata",
 ]

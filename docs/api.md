@@ -122,3 +122,18 @@ are trimmed and lower-cased.
   then offers and 30-day history for a catalog hit; single-merchant hits have no history, so trend is null).
   At most 3 parallel idealo calls, no model call.
 - `DELETE /me` removes the slug with the account.
+
+## Push and daily check (change `onboarding-language-push`)
+
+All `/me/*` endpoints need `Authorization: Bearer <session token>`.
+
+- `PUT /me/settings` `{"language": "de"|"en"}` → `{"language"}`. Language of push texts (fallback: profile language, then `de`).
+- `POST /me/devices` `{"token": "<hex APNs token>", "platform": "ios"}` → 204. Registers or refreshes a device.
+- `DELETE /me/devices/{token}` → 204.
+- `GET|POST /cron/daily` with `Authorization: Bearer $CRON_SECRET` (401 otherwise). Triggered by Vercel Cron (`0 7 * * *`, `vercel.json`). Response `{"checked": n, "alerts_sent": n}`.
+
+Daily check per account: price drop on friends' wishes and pins, item back in stock, occasion within 0–7 days (birthdays recur yearly). At most one notification per account and day; each event is sent once (`alert_log`). Invalid tokens (`BadDeviceToken`, `Unregistered`, `DeviceTokenNotForTopic`) are deleted.
+
+Payload: `aps.alert {title, body}` in the user's language, plus `personId` and `slug` of the top item for deep links.
+
+Env: `APNS_KEY` (p8 PEM), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` (`sandbox`|`production`), `CRON_SECRET`.

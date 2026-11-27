@@ -575,4 +575,137 @@ os.environ["IDEALO_MCP_URL"] = os.environ["IDEALO_CLIENT_ID"] = ""
 assert api.post("/wishlist/import", json={"url": "x" * 2001}).status_code == 422
 print("price   ok: /wishes/price order, trend, single offer, limits, cache, throttle, deadline")
 
+# --- push: devices, cron auth, thresholds, dedupe, occasions, cleanup (APNs stubbed) ---
+import push
+from datetime import date, timedelta
+
+TOK = "a" * 64
+push_user, push_h = sign_in(f"push-{tag}@example.com")
+uid = push_user["user"]["id"]
+assert api.put("/me/settings", json={"language": "en"}).status_code == 401
+assert api.put("/me/settings", json={"language": "fr"}, headers=push_h).status_code == 422
+assert api.put("/me/settings", json={"language": "en"}, headers=push_h).json() == {"language": "en"}
+assert push.user_language(uid) == "en"
+assert api.post("/me/devices", json={"token": "nope"}, headers=push_h).status_code == 422
+assert api.post("/me/devices", json={"token": TOK, "platform": "ios"}).status_code == 401
+assert api.post("/me/devices", json={"token": TOK, "platform": "ios"}, headers=push_h).status_code == 204
+assert db.devices_of(uid) == [TOK]
+assert api.delete(f"/me/devices/{TOK}", headers=push_h).status_code == 204 and db.devices_of(uid) == []
+api.post("/me/devices", json={"token": TOK, "platform": "ios"}, headers=push_h)
+
+# cron auth: no secret configured, wrong, right; GET and POST
+os.environ.pop("CRON_SECRET", None)
+assert api.post("/cron/daily").status_code == 401 and api.post("/cron/daily", headers={"Authorization": "Bearer "}).status_code == 401
+os.environ["CRON_SECRET"] = "cron-secret"
+assert api.post("/cron/daily").status_code == 401
+assert api.get("/cron/daily", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+# friend profile with a wish, a pin and a dated birthday; prices go from 50 to 42 (-16 %)
+friend, friend_h = sign_in(f"friend-{tag}@example.com")
+slug = api.post("/me/share", headers=friend_h).json()["slug"]
+fd = api.get("/me/data", headers=friend_h).json()
+api.put("/me/data", json={"people": [], "profile": {"name": "Lea", "wishes": [{"title": "Hario Mini Mill"}]},
+                          "base_updated_at": fd["updated_at"]}, headers=friend_h)
+soon = (date.today() + timedelta(days=3)).isoformat()
+people = [{"id": "p1", "name": "Lea", "friendSlug": slug, "pins": [{"product_name": "Tea Pot", "offer_url": "https://x/1", "total_eur": 20}],
+           "occasion": "birthday", "occasionDate": soon.replace(soon[:4], "1990")},
+          {"id": "p2", "name": "Tom", "pins": [], "occasion": "Housewarming", "occasionDate": (date.today() + timedelta(days=30)).isoformat()}]
+d = api.get("/me/data", headers=push_h).json()
+api.put("/me/data", json={"people": people, "profile": None, "base_updated_at": d["updated_at"]}, headers=push_h)
+
+sent_calls, apns_result = [], [(True, None)]
+push.apns_send = lambda token, payload: (sent_calls.append((token, payload)) or apns_result[0])
+prices = {"hario mini mill": 50.0, "tea pot": 20.0}
+priced = lambda session, title, deadline=None: {"price_eur": prices[title.lower()]} if prices.get(title.lower()) is not None else None
+run = lambda today=None: push.run_daily(priced, lambda: "s", today=today)
+# first run: only snapshots and the birthday (in 3 days, stored with year 1990, recurring) -> one summary
+r = run()
+assert r == {"checked": 2, "alerts_sent": 1}, r
+tok, pl = sent_calls[-1]
+assert tok == TOK and pl["aps"]["alert"]["title"] == "Wishfit" and pl["aps"]["sound"] == "default" and pl["personId"] == "p1" and pl["slug"] == slug
+assert "birthday in 3 days" in pl["aps"]["alert"]["body"] and "Tea Pot" in pl["aps"]["alert"]["body"], pl
+# same day again: at most one message per account and day
+assert run()["alerts_sent"] == 0 and len(sent_calls) == 1
+# next day: drop under 10 % is no alert, 16 % is; birthday not repeated, German is not used (account is en)
+prices["hario mini mill"] = 46.0
+tomorrow = date.today() + timedelta(days=1)
+assert run(tomorrow)["alerts_sent"] == 0
+prices["hario mini mill"] = 41.0  # 46 -> 41 is 10.9 %
+r = run(tomorrow + timedelta(days=1))
+assert r["alerts_sent"] == 1 and sent_calls[-1][1]["aps"]["alert"]["body"] == "Hario Mini Mill for Lea: \u20ac41 instead of \u20ac46", sent_calls[-1][1]["aps"]["alert"]["body"]
+# same drop again does not repeat
+assert run(tomorrow + timedelta(days=2))["alerts_sent"] == 0
+# out of stock, then back: German text; two events become one message "... und 1 weitere"
+prices["tea pot"] = None
+run(tomorrow + timedelta(days=3))
+assert db.get_snapshots(["tea pot"])["tea pot"]["in_stock"] is False
+api.put("/me/settings", json={"language": "de"}, headers=push_h)
+prices["tea pot"] = 20.0
+prices["hario mini mill"] = 30.0
+n = len(sent_calls)
+assert run(tomorrow + timedelta(days=4))["alerts_sent"] == 1
+body = sent_calls[n][1]["aps"]["alert"]["body"]
+assert body.startswith("Hario Mini Mill für Lea: 30 € statt 41 €") and body.endswith("und 1 weitere"), body
+# occasion on an exact date, 7 days ahead, one-time (no birthday): reminder, none beyond 7 days
+people[1]["occasionDate"] = (date.today() + timedelta(days=12)).isoformat()
+d = api.get("/me/data", headers=push_h).json()
+api.put("/me/data", json={"people": people, "profile": None, "base_updated_at": d["updated_at"]}, headers=push_h)
+assert push.occasion_due(people[1], date.today()) is None
+assert push.occasion_due(people[1], date.today() + timedelta(days=5))[1] == 7
+assert push.occasion_due({"occasion": "x", "occasionDate": "garbage"}, date.today()) is None
+# idealo error or timeout: the snapshot stays as it is and nothing counts as "back in stock"
+apns_result[0] = (True, None)
+
+
+def failing(session, title, deadline=None):
+    raise push.PriceUnavailable(title)
+
+
+before = db.get_snapshots(["tea pot", "hario mini mill"])
+n = len(sent_calls)
+assert push.run_daily(failing, lambda: "s", today=tomorrow + timedelta(days=20))["checked"] == 0
+assert db.get_snapshots(["tea pot", "hario mini mill"]) == before and len(sent_calls) == n
+# send phase out of time: the event stays pending (old snapshot kept), the next run delivers it
+prices["hario mini mill"] = 20.0
+r = push.run_daily(priced, lambda: "s", today=tomorrow + timedelta(days=21), send_budget_s=0)
+assert r["alerts_sent"] == 0 and db.get_snapshots(["hario mini mill"])["hario mini mill"]["price_eur"] == 30.0, r
+assert push.run_daily(priced, lambda: "s", today=tomorrow + timedelta(days=22))["alerts_sent"] == 1
+assert db.get_snapshots(["hario mini mill"])["hario mini mill"]["price_eur"] == 20.0
+# a second run while another one holds the cron lock does nothing
+with db.cron_lock() as got:
+    assert got and push.run_daily(priced, lambda: "s") == {"skipped": True}
+# cron without APNs configuration: 503, nothing runs
+for k in ("APNS_KEY", "APNS_KEY_ID", "APNS_TEAM_ID", "APNS_TOPIC"):
+    os.environ.pop(k, None)
+assert api.post("/cron/daily", headers={"Authorization": "Bearer cron-secret"}).status_code == 503
+os.environ.update(APNS_KEY="unused", APNS_KEY_ID="KID123", APNS_TEAM_ID="TEAM123", APNS_TOPIC="app.wishfit.ios")
+# cron with the secret: 200 and counts; no device -> checks nothing for this account
+r = api.post("/cron/daily", headers={"Authorization": "Bearer cron-secret"})
+assert r.status_code == 200 and set(r.json()) == {"checked", "alerts_sent"}, r.text
+# dead token: APNs says BadDeviceToken / Unregistered -> device deleted, no alert logged
+for reason in ("BadDeviceToken", "Unregistered"):
+    api.post("/me/devices", json={"token": TOK, "platform": "ios"}, headers=push_h)
+    apns_result[0] = (False, reason)
+    assert push.notify(uid, "t", "b", {}) == 0 and db.devices_of(uid) == []
+# other failure keeps the device
+api.post("/me/devices", json={"token": TOK, "platform": "ios"}, headers=push_h)
+apns_result[0] = (False, "http 500")
+assert push.notify(uid, "t", "b", {}) == 0 and db.devices_of(uid) == [TOK]
+# JWT: ES256, header kid, claims iss/iat
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+pem = ec.generate_private_key(ec.SECP256R1()).private_bytes(
+    serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+os.environ.update(APNS_KEY=pem, APNS_KEY_ID="KID123", APNS_TEAM_ID="TEAM123", APNS_TOPIC="app.wishfit.ios")
+import base64 as _b64
+head, claims, sig = push.apns_jwt().split(".")
+dec = lambda x: json.loads(_b64.urlsafe_b64decode(x + "=" * (-len(x) % 4)))
+assert dec(head) == {"alg": "ES256", "kid": "KID123"} and dec(claims)["iss"] == "TEAM123" and len(_b64.urlsafe_b64decode(sig + "==")) == 64
+assert push.apns_jwt().split(".")[1] == claims  # cached
+api.delete("/me", headers=push_h)
+api.delete("/me", headers=friend_h)
+assert db.devices_of(uid) == []
+os.environ.pop("CRON_SECRET")
+print("push    ok: devices, cron auth, thresholds, dedupe, occasions, 410 cleanup, jwt")
+
 print("ALL CHECKS PASSED")
