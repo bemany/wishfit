@@ -1,4 +1,3 @@
-import { useLinkingURL } from 'expo-linking';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import {
@@ -92,7 +91,7 @@ function Card({ rec, top }: { rec: Recommendation; top?: boolean }) {
       </View>
       {rec.offer_url && (
         <Pressable style={s.button} onPress={() => Linking.openURL(rec.offer_url!)}>
-          <Text style={s.buttonText}>Zum Angebot</Text>
+          <Text style={s.buttonText} maxFontSizeMultiplier={1.6}>Zum Angebot</Text>
         </Pressable>
       )}
     </View>
@@ -130,7 +129,6 @@ function ResultView({ result }: { result: Result }) {
 }
 
 export default function App() {
-  const url = useLinkingURL();
   const [input, setInput] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
@@ -163,10 +161,16 @@ export default function App() {
     setResult(sample as Result);
   };
 
+  // React to every URL event, so reopening the same link reloads it too
   useEffect(() => {
-    const id = idFromUrl(url);
-    if (id) load(id);
-  }, [url]);
+    const open = (url?: string | null) => {
+      const id = idFromUrl(url ?? null);
+      if (id) load(id);
+    };
+    Linking.getInitialURL().then(open);
+    const sub = Linking.addEventListener('url', ({ url }) => open(url));
+    return () => sub.remove();
+  }, []);
 
   return (
     <SafeAreaView style={s.screen}>
@@ -177,6 +181,7 @@ export default function App() {
         <View style={s.inputRow}>
           <TextInput
             style={s.input}
+            maxFontSizeMultiplier={1.6}
             value={input}
             onChangeText={setInput}
             placeholder="Ergebnis-ID, z. B. r_abc123"
@@ -186,15 +191,15 @@ export default function App() {
             onSubmitEditing={() => load(input)}
           />
           <Pressable style={s.button} onPress={() => load(input)}>
-            <Text style={s.buttonText}>Laden</Text>
+            <Text style={s.buttonText} maxFontSizeMultiplier={1.6}>Laden</Text>
           </Pressable>
         </View>
         <View style={s.inputRow}>
           <Pressable style={s.secondary} onPress={() => showSample(sampleRecommendation)}>
-            <Text style={s.secondaryText}>Beispiel: Empfehlung</Text>
+            <Text style={s.secondaryText} maxFontSizeMultiplier={1.6}>Beispiel: Empfehlung</Text>
           </Pressable>
           <Pressable style={s.secondary} onPress={() => showSample(sampleClarification)}>
-            <Text style={s.secondaryText}>Beispiel: Rückfrage</Text>
+            <Text style={s.secondaryText} maxFontSizeMultiplier={1.6}>Beispiel: Rückfrage</Text>
           </Pressable>
         </View>
 
@@ -204,7 +209,7 @@ export default function App() {
             <Text style={s.product}>Das hat nicht geklappt</Text>
             <Text style={s.reason}>{error}</Text>
             <Pressable style={s.button} onPress={() => load(lastId)}>
-              <Text style={s.buttonText}>Erneut versuchen</Text>
+              <Text style={s.buttonText} maxFontSizeMultiplier={1.6}>Erneut versuchen</Text>
             </Pressable>
           </View>
         )}
@@ -228,14 +233,16 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
-    height: 44,
+    paddingVertical: 10,
+    minHeight: 44,
     fontSize: 16,
   },
   button: {
     backgroundColor: '#111',
     borderRadius: 10,
     paddingHorizontal: 16,
-    height: 44,
+    paddingVertical: 10,
+    minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -245,11 +252,13 @@ const s = StyleSheet.create({
     borderColor: '#111',
     borderWidth: 1,
     borderRadius: 10,
-    height: 44,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  secondaryText: { color: '#111', fontWeight: '600', fontSize: 13 },
+  secondaryText: { color: '#111', fontWeight: '600', fontSize: 13, textAlign: 'center' },
   spinner: { marginTop: 24 },
   card: { backgroundColor: '#fff', borderRadius: 14, padding: 16, gap: 8 },
   cardTop: { borderColor: '#15803d', borderWidth: 2 },
