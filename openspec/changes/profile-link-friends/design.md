@@ -20,6 +20,8 @@
 6. **Link-Format**: `https://wishfit-web-test.vercel.app/u/<slug>` (Basis aus `PUBLIC_WEB_URL`, Standard diese Adresse). Die Web-App erkennt `/u/<slug>` beim Start; die iOS-App `wishloop://u/<slug>`. Die Profilseite im Web zeigt zusätzlich „Open in the app“ (Deep Link).
 7. **Agent-Kontext**: Beim Chat mit einer Person mit Wünschen schickt die App die Wünsche einmal als Teil von `input_text` („Wishlist of <name>: …“), bei Folgeturns nicht erneut. Kein neues Feld im API-Vertrag.
 
+8. **Preistracker**: `Wish` bekommt `source` (`amazon` | `snap` | `typed` | `link`), `added_at` (ms) und `price` = `{price_eur, offer_count, in_stock, trend: "down"|"stable"|"up"|null, change_percent, url, image_url, checked_at}` oder null. `POST /wishes/price` nimmt bis zu 20 Wünsche (`title`, optional `url`) und liefert je Wunsch den besten idealo-Treffer (search_products mit availableOnly, dann offers und price_history_30d für den ersten Katalogtreffer; Einzelangebote wie in PR #29 ohne Verlauf). Parallel höchstens 3 idealo-Aufrufe (Trial-Grenze 3 req/s). Kein Modellaufruf. Die App ruft es beim Öffnen des eigenen Profils und von Freundesprofilen für Wünsche mit `checked_at` älter als 6 h auf und speichert das Ergebnis im Wunsch (bei eigenen Wünschen wird es mit dem Profil synchronisiert und ist damit auch öffentlich).
+
 ## API-Vertrag (Ergänzung zu `docs/api.md`)
 
 | Methode | Pfad | Auth | Body | Antwort |
@@ -27,7 +29,8 @@
 | POST | `/wishlist/import` | nein | `{url}` | 200 `{items, source}`; 422 nicht unterstützt/leer; 429; 502 |
 | POST | `/me/share` | ja | – | 200 `{slug, url}` |
 | DELETE | `/me/share` | ja | – | 204 |
-| GET | `/profiles/{slug}` | nein | – | 200 `{name, color, wishes, updated_at}`; 404 |
+| GET | `/profiles/{slug}` | nein | – | 200 `{name, color, wishes, updated_at}`; 404 (wishes inkl. `source`, `added_at`, `price`) |
+| POST | `/wishes/price` | nein | `{wishes: [{title, url?}]}` (max 20) | 200 `{prices: [price|null]}` in gleicher Reihenfolge; 422; 429 (gleiches IP-Limit wie Import) |
 
 ## Risks / Trade-offs
 

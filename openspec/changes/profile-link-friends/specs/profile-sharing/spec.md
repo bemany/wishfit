@@ -43,3 +43,18 @@ Die App SHALL einen Profillink (`wishloop://u/<slug>` oder `…/u/<slug>` im Web
 #### Scenario: Wünsche aktualisieren
 - **WHEN** eine Person mit `friendSlug` geöffnet wird
 - **THEN** lädt die App das öffentliche Profil neu und übernimmt geänderte Wünsche; liefert das Backend 404, bleibt die Person erhalten und die App zeigt, dass das Profil nicht mehr geteilt wird
+
+### Requirement: Preistracker für Wünsche
+Das System SHALL für Wünsche aktuelle idealo-Daten liefern: bester Preis, Anzahl Shops mit Angebot, Verfügbarkeit, 30-Tage-Trend (fallend, stabil, steigend) und Prüfzeitpunkt. Die App SHALL jede Wunschzeile wie im Design `TagMe` mit Herkunft und Preisstatus zeigen und die Preise beim Öffnen des Profils aktualisieren, wenn sie älter als 6 Stunden sind.
+
+#### Scenario: Wunsch mit Preisdaten
+- **WHEN** das Profil geöffnet wird und ein Wunsch bei idealo gefunden wird
+- **THEN** zeigt die Zeile den Preis und z. B. „From my Amazon wishlist · in stock at 9 shops“ oder „price down 8 % in 30 days“
+
+#### Scenario: Wunsch ohne Treffer
+- **WHEN** idealo zu einem Wunsch nichts findet
+- **THEN** zeigt die Zeile „no price data yet“ und keinen Preis
+
+#### Scenario: Freundesprofil
+- **WHEN** jemand das Profil eines Freundes öffnet
+- **THEN** sieht er dieselben Preisangaben der Wünsche
