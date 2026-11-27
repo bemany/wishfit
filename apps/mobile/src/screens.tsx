@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Animated, KeyboardAvoidingView, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
-import { lastResult, sayOf, type Person, type Recommendation, type Result } from './api';
+import { lastResult, sayOf, type Me, type Person, type Recommendation, type Result } from './api';
 import { C, F, TAG_COLORS, eur } from './theme';
 import { Body, Btn, Bubble, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Tag, TopBar, s } from './ui';
 
@@ -11,12 +11,44 @@ const ACTION = { buy: 'Buy now', wait: 'Better wait', alternative: 'Alternative'
 const pad = { paddingHorizontal: 16 };
 const metaOf = (p: Person) => `${p.occasion} · ${eur(p.budget)}`;
 
+const SITE = 'https://wishfit.vercel.app';
+const share = (message: string) => Share.share({ message }).catch(() => {});
+
+// A tag can be pushed a little sideways and springs back. Pure play, no action behind it.
+// Claims the touch only for clearly horizontal drags, so taps and vertical scrolling stay untouched.
+function Wiggle({ style, children }: { style?: StyleProp<ViewStyle>; children: React.ReactNode }) {
+  const x = useRef(new Animated.Value(0)).current;
+  const pan = useRef(
+    (() => {
+      const home = () => Animated.spring(x, { toValue: 0, useNativeDriver: true, friction: 5, tension: 120 }).start();
+      return PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy),
+        onPanResponderMove: (_e, g) => x.setValue(Math.max(-70, Math.min(70, g.dx))),
+        onPanResponderRelease: home,
+        onPanResponderTerminate: home,
+      });
+    })(),
+  ).current;
+  const rotate = x.interpolate({ inputRange: [-70, 70], outputRange: ['-4deg', '4deg'] });
+  return (
+    <Animated.View {...pan.panHandlers} style={[style, { transform: [{ translateX: x }, { rotate }] }]}>
+      {children}
+    </Animated.View>
+  );
+}
+
 // 1 People: the stack of tags
-export function People({ brand, people, onOpen, onAdd }: { brand: string; people: Person[]; onOpen: (p: Person) => void; onAdd: () => void }) {
+export function People({ brand, people, onOpen, onAdd, onMe }: { brand: string; people: Person[]; onOpen: (p: Person) => void; onAdd: () => void; onMe: () => void }) {
   const insets = useSafeAreaInsets();
   return (
     <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
-      <TopBar left={<Text style={s.word}>{brand.toLowerCase()}</Text>} right={<Round icon="plus" label="Add someone" ink onPress={onAdd} />} />
+      <TopBar left={<Text style={s.word}>{brand.toLowerCase()}</Text>} right={
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Round icon="me" label="Me" onPress={onMe} />
+            <Round icon="plus" label="Add someone" ink onPress={onAdd} />
+          </View>
+        }
+      />
       <Text style={s.display}>Who gets a gift next?</Text>
       <View style={{ marginTop: 4 }}>
         {people.map((p, i) => {
@@ -24,7 +56,8 @@ export function People({ brand, people, onOpen, onAdd }: { brand: string; people
           const status = !r ? 'New' : r.status === 'recommendation' ? 'Pick ready' : r.status === 'needs_clarification' ? '1 question' : 'Ideas';
           const last = i === people.length - 1;
           return (
-            <Tag key={p.id} color={p.color} label={p.name} onPress={() => onOpen(p)} style={[i > 0 && { marginTop: -64 }, { paddingBottom: last ? 22 : 84 }]}>
+            <Wiggle key={p.id} style={i > 0 && { marginTop: -64 }}>
+            <Tag color={p.color} label={p.name} onPress={() => onOpen(p)} style={{ paddingBottom: last ? 22 : 84 }}>
               <View style={s.row}>
                 <Mono>{metaOf(p)}</Mono>
                 <Mono>{status}</Mono>
@@ -36,11 +69,13 @@ export function People({ brand, people, onOpen, onAdd }: { brand: string; people
                 </Body>
               )}
             </Tag>
+            </Wiggle>
           );
         })}
       </View>
       {people.length === 0 && <Body style={{ color: C.mute }}>No tags yet. Add the first person you want to find a gift for.</Body>}
       <Btn label="Add someone" onPress={onAdd} />
+      <Btn secondary label="Invite a friend" onPress={() => share(`I'm using Wishfit to find gifts people actually want. ${SITE}`)} />
       <Mono mute style={{ textAlign: 'center' }}>
         Your tags stay on this phone.
       </Mono>
@@ -50,12 +85,14 @@ export function People({ brand, people, onOpen, onAdd }: { brand: string; people
 
 // 2 Add someone
 // Also edits an existing tag when `initial` is given
-export function AddPerson({ initial, onBack, onDone, onDelete }: { initial?: Person; onBack: () => void; onDone: (p: Omit<Person, 'id' | 'messages' | 'lastResultId'>) => void; onDelete?: () => void }) {
+// `usedColors`: the colours of the other people. They are locked while a free colour remains
+export function AddPerson({ initial, usedColors, onBack, onDone, onDelete }: { initial?: Person; usedColors: string[]; onBack: () => void; onDone: (p: Omit<Person, 'id' | 'messages' | 'lastResultId'>) => void; onDelete?: () => void }) {
   const insets = useSafeAreaInsets();
   const [name, setName] = useState(initial?.name ?? '');
   const [budget, setBudget] = useState(initial ? String(initial.budget) : '');
   const [occasion, setOccasion] = useState(initial?.occasion ?? '');
-  const [color, setColor] = useState(initial?.color ?? TAG_COLORS[0]);
+  const allTaken = TAG_COLORS.every((c) => usedColors.includes(c));
+  const [color, setColor] = useState(initial?.color ?? TAG_COLORS.find((c) => !usedColors.includes(c)) ?? TAG_COLORS[0]);
   const [error, setError] = useState(false);
 
   const submit = () => {
@@ -73,7 +110,7 @@ export function AddPerson({ initial, onBack, onDone, onDelete }: { initial?: Per
           <Mono>{initial ? 'Edit tag' : 'New tag'}</Mono>
           <View style={{ gap: 4 }}>
             <Mono>Name</Mono>
-            <TextInput accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8 }]} />
+            <TextInput accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="Name" placeholderTextColor="rgba(11,11,12,0.4)" style={[field, { fontSize: 40, letterSpacing: -1.8, height: 60, paddingVertical: 0 }]} />
           </View>
           <View style={{ flexDirection: 'row', gap: 16 }}>
             <View style={{ flex: 1, gap: 4 }}>
@@ -90,11 +127,23 @@ export function AddPerson({ initial, onBack, onDone, onDelete }: { initial?: Per
         <View style={{ gap: 10 }}>
           <Mono mute>Tag colour</Mono>
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            {TAG_COLORS.map((c) => (
-              <Pressable key={c} accessibilityRole="button" accessibilityLabel={`Colour ${c}`} onPress={() => setColor(c)} style={[s.round, { width: 48, height: 48, backgroundColor: c }]}>
-                {c === color && <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: C.ink }} />}
-              </Pressable>
-            ))}
+            {TAG_COLORS.map((c) => {
+              const taken = !allTaken && c !== color && usedColors.includes(c);
+              return (
+                <Pressable
+                  key={c}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Colour ${c}${taken ? ', taken' : ''}`}
+                  accessibilityState={{ disabled: taken, selected: c === color }}
+                  disabled={taken}
+                  onPress={() => setColor(c)}
+                  style={[s.round, { width: 48, height: 48, backgroundColor: c }, taken && { opacity: 0.3 }]}
+                >
+                  {c === color && <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: C.ink }} />}
+                  {taken && <View style={{ width: 44, height: 2, backgroundColor: C.ink, transform: [{ rotate: '-45deg' }] }} />}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
         {error && <Body>I need a name, a budget and an occasion.</Body>}
@@ -106,6 +155,74 @@ export function AddPerson({ initial, onBack, onDone, onDelete }: { initial?: Per
             <Mono>Remove this tag</Mono>
           </Pressable>
         )}
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+// Me: my own tag and wishlist. Everything stays on this phone, sharing goes through the system share sheet
+export function MeScreen({ me, onChange, onBack }: { me: Me; onChange: (me: Me) => void; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  const [wish, setWish] = useState('');
+  const addWish = () => {
+    const text = wish.trim();
+    if (!text) return;
+    onChange({ ...me, wishes: [...me.wishes, text] });
+    setWish('');
+  };
+  const name = me.name.trim();
+  const title = name ? `${name}'s wishlist` : 'My wishlist';
+  return (
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
+        <TopBar onBack={onBack} title="Me" />
+        <Tag color={me.color} style={{ gap: 8 }}>
+          <View style={s.row}>
+            <Mono>My tag</Mono>
+            <Mono>{me.wishes.length === 1 ? '1 wish' : `${me.wishes.length} wishes`}</Mono>
+          </View>
+          <TextInput
+            accessibilityLabel="My name"
+            value={me.name}
+            onChangeText={(text) => onChange({ ...me, name: text })}
+            placeholder="Your name"
+            placeholderTextColor="rgba(11,11,12,0.4)"
+            style={{ fontFamily: F.display, color: C.ink, fontSize: 40, letterSpacing: -1.8, height: 60, borderBottomWidth: 2, borderColor: C.ink, paddingVertical: 0 }}
+          />
+        </Tag>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          {TAG_COLORS.map((c) => (
+            <Pressable key={c} accessibilityRole="button" accessibilityLabel={`Colour ${c}`} onPress={() => onChange({ ...me, color: c })} style={[s.round, { width: 48, height: 48, backgroundColor: c }]}>
+              {c === me.color && <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: C.ink }} />}
+            </Pressable>
+          ))}
+        </View>
+        <View>
+          <Mono mute style={{ paddingBottom: 10 }}>
+            My wishlist
+          </Mono>
+          {me.wishes.length === 0 && <Body style={{ color: C.mute }}>Nothing here yet. Add the first thing you would love to get.</Body>}
+          {me.wishes.map((w, i) => (
+            <View key={i} style={[s.line, { paddingVertical: 6 }, i === me.wishes.length - 1 && { borderBottomWidth: 2 }]}>
+              <Body style={{ flex: 1 }} numberOfLines={2}>
+                {w}
+              </Body>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${w}`} onPress={() => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontFamily: F.bold, fontSize: 24, lineHeight: 26, color: C.ink }}>×</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <TextInput accessibilityLabel="New wish" value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder="A wish or a link" placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
+          <Round icon="plus" label="Add wish" ink size={52} onPress={addWish} />
+        </View>
+      </ScrollView>
+      <View style={[pad, { gap: 10, paddingTop: 8, paddingBottom: insets.bottom + 12 }]}>
+        <Btn label="Share my wishlist" disabled={me.wishes.length === 0} onPress={() => share([title, ...me.wishes.map((w) => `- ${w}`), '', `Made with Wishfit ${SITE}`].join('\n'))} />
+        <Mono mute style={{ textAlign: 'center' }}>
+          Your wishlist stays on this phone until you share it.
+        </Mono>
       </View>
     </KeyboardAvoidingView>
   );

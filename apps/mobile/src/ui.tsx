@@ -8,6 +8,7 @@ const ICONS = {
   back: 'M15 6l-6 6 6 6',
   plus: 'M12 5v14M5 12h14',
   send: 'M12 19V5M5 12l7-7 7 7',
+  me: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 20c0-3.3 3.6-6 8-6s8 2.7 8 6',
 } as const;
 
 type TP = TextProps & { style?: StyleProp<TextStyle>; children?: ReactNode };
@@ -60,8 +61,8 @@ export const Pill = ({ label, onPress, large }: { label: string; onPress?: () =>
   </Pressable>
 );
 
-export const Btn = ({ label, onPress, secondary }: { label: string; onPress: () => void; secondary?: boolean }) => (
-  <Pressable accessibilityRole="button" onPress={onPress} style={[s.btn, secondary && { backgroundColor: C.paper }]}>
+export const Btn = ({ label, onPress, secondary, disabled }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean }) => (
+  <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.btn, secondary && { backgroundColor: C.paper }, disabled && { opacity: 0.3 }]}>
     <Text style={[s.btnText, secondary && { color: C.ink }]}>{label}</Text>
   </Pressable>
 );

@@ -11,14 +11,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { idFromUrl, loadPeople, loadResult, recommend, savePeople, type Person, type Result } from './src/api';
-import { AddPerson, Detail, People, Thread } from './src/screens';
+import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, type Me, type Person, type Result } from './src/api';
+import { AddPerson, Detail, MeScreen, People, Thread } from './src/screens';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
 const BRAND = 'Wishfit';
 
-type View_ = { name: 'people' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
+type View_ = { name: 'people' } | { name: 'me' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
 
 export default function App() {
   // On a font error the app still renders, with the system font
@@ -56,6 +56,7 @@ function EdgeBack({ x, onBack }: { x: Animated.Value; onBack: () => void }) {
 function Root() {
   const insets = useSafeAreaInsets();
   const [people, setPeople] = useState<Person[]>(loadPeople);
+  const [me, setMe] = useState<Me>(loadMe);
   const [view, setView] = useState<View_>({ name: 'people' });
   // ponytail: one request at a time across all threads
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -130,11 +131,21 @@ function Root() {
       <StatusBar style="dark" />
       <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
       {view.name === 'add' ? (
-        <AddPerson onBack={goBack} onDone={add} />
+        <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
+      ) : view.name === 'me' ? (
+        <MeScreen
+          me={me}
+          onBack={goBack}
+          onChange={(next) => {
+            setMe(next);
+            saveMe(next);
+          }}
+        />
       ) : view.name === 'edit' && person ? (
         <AddPerson
           key={`edit-${person.id}`}
           initial={person}
+          usedColors={people.filter((p) => p.id !== person.id).map((p) => p.color)}
           onBack={goBack}
           onDone={(fields) => {
             update(person.id, (p) => ({ ...p, ...fields }));
@@ -166,7 +177,7 @@ function Root() {
           onBack={goBack}
         />
       ) : (
-        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} />
+        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} />
       )}
       </Animated.View>
       {view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}

@@ -103,12 +103,24 @@ export async function recommend(p: Person, text: string): Promise<Result> {
 
 // expo-file-system ships with the expo package, so this needs no extra native module
 const peopleFile = () => new File(Paths.document, 'people.json');
+// While unused colours remain, two people never share one: later duplicates move to a free colour
+export const uniqueColors = (people: Person[]): Person[] => {
+  const used = new Set(people.map((p) => p.color));
+  const seen = new Set<string>();
+  return people.map((p) => {
+    const free = seen.has(p.color) ? TAG_COLORS.find((c) => !used.has(c)) : undefined;
+    const color = free ?? p.color;
+    used.add(color);
+    seen.add(color);
+    return free ? { ...p, color } : p;
+  });
+};
 export const loadPeople = (): Person[] => {
   try {
     const file = peopleFile();
     const raw: any[] = file.exists ? JSON.parse(file.textSync()) : [];
     // Entries from before the gift-tags rebuild have no id, colour or messages
-    return raw.map((p, i) => ({
+    const people: Person[] = raw.map((p, i) => ({
       id: p.id ?? `p_${i}_${p.name}`,
       name: p.name,
       occasion: p.occasion,
@@ -117,6 +129,9 @@ export const loadPeople = (): Person[] => {
       messages: p.messages ?? [],
       lastResultId: p.lastResultId ?? null,
     }));
+    const fixed = uniqueColors(people);
+    if (fixed.some((p, i) => p !== people[i])) savePeople(fixed);
+    return fixed;
   } catch {
     return [];
   }
@@ -126,5 +141,31 @@ export const savePeople = (people: Person[]) => {
     peopleFile().write(JSON.stringify(people));
   } catch {
     // the list still works for this session
+  }
+};
+
+// My own tag and wishlist. Local to this phone like the people, in a second file
+export type Me = { name: string; color: string; wishes: string[] };
+const meFile = () => new File(Paths.document, 'me.json');
+export const loadMe = (): Me => {
+  const empty: Me = { name: '', color: TAG_COLORS[1], wishes: [] };
+  try {
+    const file = meFile();
+    const raw = file.exists ? JSON.parse(file.textSync()) : null;
+    if (!raw || typeof raw !== 'object') return empty;
+    return {
+      name: typeof raw.name === 'string' ? raw.name : '',
+      color: typeof raw.color === 'string' ? raw.color : empty.color,
+      wishes: Array.isArray(raw.wishes) ? raw.wishes.filter((w: unknown) => typeof w === 'string') : [],
+    };
+  } catch {
+    return empty;
+  }
+};
+export const saveMe = (me: Me) => {
+  try {
+    meFile().write(JSON.stringify(me));
+  } catch {
+    // still works for this session
   }
 };
