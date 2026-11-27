@@ -18,6 +18,7 @@
 - [x] 3.3 Ergebnisseite mit Begründung, Preis inklusive Versand, Datensignalen, Rückfrage
 - [x] 3.4 Button "Jetzt selbst jemanden beschenken"
 - [x] 3.5 Web auf HeroUI Pro umgestellt
+- [x] 3.6 Web: Assistenten-Eingabe für beliebige Eingaben
 
 ## 4. Mobile
 
