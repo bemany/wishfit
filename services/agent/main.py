@@ -308,8 +308,9 @@ product, nothing fits the budget) do NOT guess: set status "needs_clarification"
 concrete reason in uncertainty.reasons and ask ONE follow-up question in uncertainty.question that would \
 resolve the most important ambiguity. Alternatives may be empty then.
 - If you can recommend but some doubt remains, keep status "recommendation" and still fill uncertainty.
-- All human-readable strings (reason, signal label/value, reasons, question, delivery_estimate) in German, \
-reason 1-3 sentences."""
+ Address the giver informally with "du", never "Sie".
+- Prefer a recommendation: if at least one match fits the budget and the person, recommend it and put remaining \
+doubts into uncertainty. Use needs_clarification only when no match is usable at all."""
 
 
 GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
@@ -334,6 +335,9 @@ plus occasion, budget and optional preferences. Return ONE JSON object and nothi
 - candidates: 1-5 concrete gift ideas, each phrased as a product search term a price-comparison site would \
 understand (German), most promising first, realistic for the budget. why: the part of the input the idea comes \
 from, quoted or closely paraphrased in German. Respect dislikes and constraints stated in the input.
+- Lines starting with "Nachtrag:" are follow-up instructions from the giver after an earlier answer (for \
+example cheaper, something completely different, the person already owns it). Apply them: adjust or replace the \
+candidates accordingly instead of repeating the earlier ones.
 - Use only what the input says. Do not invent facts about the person. If the input names explicit products, \
 keep them as candidates."""
 
