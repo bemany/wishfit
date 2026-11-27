@@ -33,10 +33,11 @@ export const writeSecret = (key: string, value: string) => {
     // stays signed out
   }
 };
-export const deleteSecret = (key: string) => {
+export const deleteSecret = (key: string): Promise<void> => {
   try {
     localStorage.removeItem(k(key));
   } catch {
     // nothing to remove
   }
+  return Promise.resolve();
 };

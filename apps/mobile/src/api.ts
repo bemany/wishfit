@@ -1,8 +1,8 @@
-import { readJson, readSecret, writeJson } from './storage';
+import { deleteSecret, readJson, readSecret, writeJson, writeSecret } from './storage';
 import { TAG_COLORS } from './theme';
 
 // 'de' when the first preferred language is German, else 'en'
-const deviceLanguage = () => {
+export const deviceLanguage = () => {
   try {
     return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('de') ? 'de' : 'en';
   } catch {
@@ -111,13 +111,29 @@ export class ApiError extends Error {
 // The signed-in session: token in the keychain (web: localStorage), e-mail beside it
 export type Session = { token: string; email: string };
 export const SESSION_KEY = 'session';
+// undefined = not read yet; the in-memory copy is authoritative, so a sign-out stops requests at once
+// and a keychain that refuses to write still keeps the session until the app restarts
+let memory: Session | null | undefined;
 export const getSession = (): Session | null => {
+  if (memory !== undefined) return memory;
   try {
     const s = JSON.parse(readSecret(SESSION_KEY) ?? 'null');
-    return s && typeof s.token === 'string' ? s : null;
+    memory = s && typeof s.token === 'string' ? s : null;
   } catch {
-    return null;
+    memory = null;
   }
+  return memory!;
+};
+// Returns false when the session could not be stored for the next app start
+export const setSession = (s: Session): boolean => {
+  memory = s;
+  const raw = JSON.stringify(s);
+  writeSecret(SESSION_KEY, raw);
+  return readSecret(SESSION_KEY) === raw;
+};
+export const clearSession = () => {
+  memory = null;
+  deleteSecret(SESSION_KEY);
 };
 
 // Called when the server rejects the token (401): the account module signs out

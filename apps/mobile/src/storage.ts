@@ -35,6 +35,4 @@ export const writeSecret = (key: string, value: string) => {
     // stays signed out
   }
 };
-export const deleteSecret = (key: string) => {
-  SecureStore.deleteItemAsync(key).catch(() => {});
-};
+export const deleteSecret = (key: string): Promise<void> => SecureStore.deleteItemAsync(key).catch(() => {});

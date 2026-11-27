@@ -60,6 +60,7 @@ export function AccountPanel({ account }: { account: Account }) {
         <Mono mute>Account</Mono>
         <Body accessibilityLabel="Signed in as">{account.session.email}</Body>
         <Mono mute>{account.syncError ?? (account.syncing ? 'Syncing…' : 'Synced')}</Mono>
+        {account.notStored && <Mono mute>Your sign-in could not be saved on this device. You stay signed in until you close the app.</Mono>}
         {note && <Mono style={{ color: C.tomato }}>{note}</Mono>}
         <Btn label="Sign out" secondary disabled={busy} onPress={() => run(account.signOut, 'Could not sign out.')} />
         <Btn label="Delete account" secondary disabled={busy} onPress={askDelete} />

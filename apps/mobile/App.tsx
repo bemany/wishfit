@@ -63,14 +63,17 @@ function Root() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
 
-  const account = useAccount(people, me, setPeople, setMe);
+  // the ref holds the newest list, so parallel changes (an agent answer and an edit) never overwrite each other
+  const peopleRef = useRef(people);
+  const applyPeople = (f: (all: Person[]) => Person[]) => {
+    const next = f(peopleRef.current);
+    peopleRef.current = next;
+    savePeople(next);
+    setPeople(next);
+  };
+  const account = useAccount(people, me, applyPeople, setMe, peopleRef);
 
-  const update = (id: string, change: (p: Person) => Person) =>
-    setPeople((all) => {
-      const next = all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p));
-      savePeople(next);
-      return next;
-    });
+  const update = (id: string, change: (p: Person) => Person) => applyPeople((all) => all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p)));
 
   const send = async (person: Person, text: string, photo?: { uri: string; base64: string }) => {
     setBusyId(person.id);
@@ -95,9 +98,7 @@ function Root() {
 
   const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId' | 'pins'>) => {
     const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [], updatedAt: Date.now() };
-    const next = [person, ...people];
-    setPeople(next);
-    savePeople(next);
+    applyPeople((all) => [person, ...all]);
     setView({ name: 'thread', id: person.id });
   };
 
@@ -165,9 +166,7 @@ function Root() {
             setView({ name: 'thread', id: person.id });
           }}
           onDelete={() => {
-            const next = people.filter((p) => p.id !== person.id);
-            setPeople(next);
-            savePeople(next);
+            account.removePerson(person.id);
             setView({ name: 'people' });
           }}
         />
