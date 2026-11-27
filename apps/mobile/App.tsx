@@ -17,6 +17,7 @@ import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, frien
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
 import { Onboarding } from './src/onboarding';
+import { onPushOpen } from './src/push';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
@@ -204,6 +205,16 @@ function Root() {
     const sub = Linking.addEventListener('url', ({ url }) => open(url));
     return () => sub.remove();
   }, []);
+
+  // Tapping a notification: the person's chat, otherwise the shared tag it is about
+  useEffect(
+    () =>
+      onPushOpen(({ personId, slug }) => {
+        if (personId && peopleRef.current.some((p) => p.id === personId)) return setView({ name: 'thread', id: personId });
+        if (slug) setView({ name: 'profile', slug });
+      }),
+    [],
+  );
 
   const person = 'id' in view ? (people.find((p) => p.id === view.id) ?? null) : null;
   // Screen transitions: forward slides in from the right, back slides out to the right (button and swipe alike)

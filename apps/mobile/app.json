@@ -41,6 +41,14 @@
       "orientation": "portrait",
       "lang": "en"
     },
-    "scheme": "wishloop"
+    "scheme": "wishloop",
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "mode": "development"
+        }
+      ]
+    ]
   }
 }

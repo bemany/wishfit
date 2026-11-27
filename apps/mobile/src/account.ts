@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 
 import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
 import { getLanguage, isLang, t, type Lang } from './i18n';
+import { registerPush, unregisterPush } from './push';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
@@ -252,9 +253,11 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setSessionLostHandler(drop);
   }, [drop]);
 
-  // app start: pull the account once
+  // app start: pull the account once and refresh the push token, which can change
   useEffect(() => {
-    if (getSession()) sync(true);
+    if (!getSession()) return;
+    sync(true);
+    registerPush().catch(() => {});
   }, []);
 
   // coming back to the foreground: pull again, at most once a minute
@@ -297,16 +300,20 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setSessionState(next);
     setDevCode(null);
     saveLanguage(getLanguage());
+    // notifications allowed earlier, e.g. in the onboarding, start now
+    registerPush().catch(() => {});
     sync(true);
   };
   const saveLanguage = (lang: Lang) => {
     if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
   const signOut = async () => {
+    await unregisterPush();
     await call('POST', '/auth/logout').catch(() => {});
     drop();
   };
   const deleteAccount = async () => {
+    await unregisterPush();
     await call('DELETE', '/me');
     // the data stays on this device
     drop();
