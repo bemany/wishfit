@@ -7,8 +7,8 @@ import { InstrumentSans_600SemiBold } from '@expo-google-fonts/instrument-sans/6
 import { InstrumentSans_700Bold } from '@expo-google-fonts/instrument-sans/700Bold';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import { Linking, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { idFromUrl, loadPeople, loadResult, recommend, savePeople, type Person, type Result } from './src/api';
@@ -29,6 +29,22 @@ export default function App() {
       <Root />
     </SafeAreaProvider>
   );
+}
+
+// Swipe from the left edge to the right = the screen's back button.
+// ponytail: a 22pt edge strip with PanResponder, no gesture library; the strip only reacts to horizontal drags
+function EdgeBack({ onBack }: { onBack: () => void }) {
+  const back = useRef(onBack);
+  back.current = onBack;
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => g.dx > 12 && Math.abs(g.dy) < 18,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx > 60 && Math.abs(g.dy) < 80) back.current();
+      },
+    }),
+  ).current;
+  return <View {...pan.panHandlers} accessible={false} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 22 }} />;
 }
 
 function Root() {
@@ -80,6 +96,11 @@ function Root() {
   }, []);
 
   const person = 'id' in view ? (people.find((p) => p.id === view.id) ?? null) : null;
+  // The same target as each screen's back button
+  const goBack = () =>
+    setView(
+      view.name === 'edit' ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' },
+    );
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
@@ -123,6 +144,7 @@ function Root() {
       ) : (
         <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} />
       )}
+      {view.name !== 'people' && <EdgeBack onBack={goBack} />}
     </View>
   );
 }
