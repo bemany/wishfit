@@ -15,7 +15,8 @@ import { useAccount } from './src/account';
 import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
-import { getLanguage, setLanguage, t, type Lang } from './src/i18n';
+import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
+import { Onboarding } from './src/onboarding';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
@@ -63,6 +64,7 @@ function Root() {
   const [view, setView] = useState<View_>({ name: 'people' });
   // every screen reads its texts through t(), so a new language re-renders them from here
   const [lang, setLang] = useState<Lang>(getLanguage);
+  const [onboarded, setOnboarded] = useState(() => readSettings().onboarded === true);
   // ponytail: one request at a time across all threads
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
@@ -233,7 +235,17 @@ function Root() {
     <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
       <StatusBar style="dark" />
       <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
-      {view.name === 'profile' ? (
+      {!onboarded ? (
+        <Onboarding
+          lang={lang}
+          signedIn={!!account.session}
+          onLanguage={changeLanguage}
+          onDone={() => {
+            writeSettings({ onboarded: true });
+            setOnboarded(true);
+          }}
+        />
+      ) : view.name === 'profile' ? (
         <ProfileView key={view.slug} slug={view.slug} people={people} mine={me.share?.slug === view.slug} onBack={goBack} onAdd={(profile) => addFriend(view.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
       ) : view.name === 'add' ? (
         <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
@@ -300,7 +312,7 @@ function Root() {
         <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} onSnap={() => setView({ name: 'snap', id: null })} />
       )}
       </Animated.View>
-      {view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
+      {onboarded && view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
     </View>
   );
 }
