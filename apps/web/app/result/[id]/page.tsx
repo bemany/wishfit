@@ -143,19 +143,49 @@ export default function ResultPage() {
     );
   }
 
-  const clarification = result.status === "needs_clarification" && result.uncertainty;
+  const ideasOnly = result.status === "ideas_only";
+  const clarification = (ideasOnly || result.status === "needs_clarification") && result.uncertainty;
+  const understood = result.understood;
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
       <h1 className="text-3xl font-semibold leading-tight tracking-tight">
-        {clarification ? "Eine Frage, bevor der Agent empfiehlt" : "Die Empfehlung"}
+        {ideasOnly ? "Meine Geschenkideen" : clarification ? "Eine Frage, bevor ich empfehle" : "Meine Empfehlung"}
       </h1>
+
+      {understood && (
+        <section className="flex flex-col gap-3 rounded-2xl bg-surface-secondary p-4">
+          <h2 className="text-sm font-semibold">Das habe ich verstanden</h2>
+          <p>{understood.summary}</p>
+          {understood.interests.length > 0 && (
+            <ul className="flex flex-wrap gap-2" aria-label="Interessen">
+              {understood.interests.map((interest) => (
+                <li key={interest}>
+                  <Chip variant="soft">{interest}</Chip>
+                </li>
+              ))}
+            </ul>
+          )}
+          {understood.candidates.length > 0 && (
+            <dl className="flex flex-col gap-3">
+              {understood.candidates.map((c, i) => (
+                <div key={i}>
+                  <dt className="font-medium">{c.idea}</dt>
+                  <dd className="text-sm text-muted">{c.why}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </section>
+      )}
 
       {clarification && (
         <Alert status="warning">
           <Alert.Indicator />
           <Alert.Content>
-            <Alert.Title>Der Agent ist sich nicht sicher</Alert.Title>
+            <Alert.Title>
+              {ideasOnly ? "Für diese Ideen fehlen mir noch Daten" : "Ich bin mir nicht sicher"}
+            </Alert.Title>
             <Alert.Description>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {clarification.reasons.map((r, i) => (
@@ -168,9 +198,9 @@ export default function ResultPage() {
         </Alert>
       )}
 
-      {result.top && <RecommendationCard rec={result.top} top />}
+      {!ideasOnly && result.top && <RecommendationCard rec={result.top} top />}
 
-      {result.alternatives.length > 0 && (
+      {!ideasOnly && result.alternatives.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="text-xl font-semibold tracking-tight">Alternativen</h2>
           {result.alternatives.map((rec, i) => (
