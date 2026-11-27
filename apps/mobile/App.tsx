@@ -343,6 +343,9 @@ function LoadingSteps() {
 
 // Everything known about one recipient. `context` grows with every request and follow-up
 // and is sent along again next time, so the agent builds on the whole history.
+// One-tap follow-ups under a result
+const QUICK_REPLIES = ['Günstiger', 'Etwas ganz anderes', 'Das hat die Person schon'];
+
 type Person = { name: string; occasion: string; budget: number; context: string[]; results: Result[] };
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -469,8 +472,8 @@ function Screen() {
     setChat(true);
   };
 
-  const sendFollowUp = () => {
-    const msg = followUp.trim();
+  const sendFollowUp = (quick?: string) => {
+    const msg = (quick ?? followUp).trim();
     if (!msg) return;
     setFollowUp('');
     ask([...thread, `Nachtrag: ${msg}`], [...notes, msg]);
@@ -546,7 +549,7 @@ function Screen() {
       </View>
       <ScrollView
         contentContainerClassName="gap-3 px-4 pt-2"
-        contentContainerStyle={{ paddingBottom: insets.bottom + (hasBar ? 104 : 24) }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + (view === 'result' && chat ? 148 : hasBar ? 104 : 24) }}
         keyboardShouldPersistTaps="handled"
       >
         {view === 'form' && (
@@ -682,20 +685,29 @@ function Screen() {
               <Button.Label maxFontSizeMultiplier={1.6}>Geschenk finden</Button.Label>
             </Button>
           ) : (
-            <View className="flex-row items-end gap-2">
-              <View className="flex-1">
-                <TextArea
-                  className="max-h-32 min-h-12"
+            <View className="gap-2">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerClassName="gap-2">
+                {QUICK_REPLIES.map((q) => (
+                  <Button key={q} variant="secondary" size="sm" className="min-h-11" onPress={() => sendFollowUp(q)}>
+                    <Button.Label maxFontSizeMultiplier={1.6}>{q}</Button.Label>
+                  </Button>
+                ))}
+              </ScrollView>
+              <View className="flex-row items-center gap-2">
+                <Input
+                  className="min-h-12 flex-1"
                   maxFontSizeMultiplier={1.6}
                   accessibilityLabel="Nachricht an den Agenten"
                   value={followUp}
                   onChangeText={setFollowUp}
-                  placeholder="Weiter schreiben, z. B. lieber etwas für die Küche"
+                  placeholder="Weiter schreiben …"
+                  returnKeyType="send"
+                  onSubmitEditing={() => sendFollowUp()}
                 />
+                <Button isIconOnly className="size-12" accessibilityLabel="Senden" onPress={() => sendFollowUp()}>
+                  <Icon name="send" color="#ffffff" />
+                </Button>
               </View>
-              <Button isIconOnly className="size-12" accessibilityLabel="Senden" onPress={sendFollowUp}>
-                <Icon name="send" color="#ffffff" />
-              </Button>
             </View>
           )}
         </View>
