@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, Alert, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, Linking, PanResponder, Pressable, ScrollView, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -523,7 +524,7 @@ export function Thread({
   busy: boolean;
   error: string | null;
   onBack: () => void;
-  onSend: (text: string) => void;
+  onSend: (text: string, photo?: { uri: string; base64: string }) => void;
   onOpen: (r: Result) => void;
   onEdit: () => void;
   onPin: OnPin;
@@ -570,6 +571,26 @@ export function Thread({
     onSend(msg);
   };
 
+  // Photo search: snap or pick a product, the agent names it and looks it up. Text in the field goes along.
+  // ponytail: sent at the picker's quality 0.4 without resizing (about 1 MB); resize with expo-image-manipulator if uploads get slow
+  const snap = async (from: 'camera' | 'library') => {
+    if (from === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) return setMicNote('The camera is switched off for Wishfit in Settings.');
+    const options = { mediaTypes: ['images' as const], quality: 0.4, base64: true };
+    const picked = await (from === 'camera' ? ImagePicker.launchCameraAsync(options) : ImagePicker.launchImageLibraryAsync(options)).catch(() => null);
+    const asset = picked?.assets?.[0];
+    if (!asset?.base64) return;
+    stopMic();
+    const words = text.trim();
+    setText('');
+    onSend(words || 'What about this?', { uri: asset.uri, base64: asset.base64 });
+  };
+  const askPhoto = () =>
+    Alert.alert('Snap a product', 'I recognise it and look it up on idealo.', [
+      { text: 'Take a photo', onPress: () => snap('camera') },
+      { text: 'Choose from library', onPress: () => snap('library') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
       <View style={pad}>
@@ -602,9 +623,10 @@ export function Thread({
         )}
         {person.messages.map((m, i) =>
           m.role === 'user' ? (
-            <Bubble key={i} note={m.text.length > 160 ? `${m.text.split('\n').length} lines` : undefined}>
-              {m.text}
-            </Bubble>
+            <View key={i} style={{ gap: 8 }}>
+              {m.photo && <Image source={{ uri: m.photo }} accessibilityLabel="Your photo" style={{ alignSelf: 'flex-end', width: 160, height: 160, borderRadius: 20, borderWidth: 2, borderColor: C.ink }} />}
+              <Bubble note={m.text.length > 160 ? `${m.text.split('\n').length} lines` : undefined}>{m.text}</Bubble>
+            </View>
           ) : (
             <View key={i} style={{ gap: 16 }} onLayout={(e) => i === person.messages.length - 1 && scroll.current?.scrollTo({ y: e.nativeEvent.layout.y - 12, animated: true })}>
               <Turn person={person} result={m.result} onOpen={() => onOpen(m.result)} onPin={onPin} />
@@ -641,6 +663,7 @@ export function Thread({
             placeholderTextColor={C.mute}
             style={s.input}
           />
+          {!busy && <Round icon="camera" label="Snap a product" size={52} onPress={askPhoto} />}
           {speechAvailable() && <Round icon="mic" label={session ? 'Stop dictation' : 'Dictate'} size={52} fill={session ? C.tomato : undefined} onPress={toggleMic} />}
           <Round icon="send" label="Send" ink size={52} onPress={() => send()} />
         </View>

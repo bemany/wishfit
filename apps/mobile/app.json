@@ -11,7 +11,9 @@
       "bundleIdentifier": "de.bemany.wishloop",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio.",
-        "NSSpeechRecognitionUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio."
+        "NSSpeechRecognitionUsageDescription": "Wishfit listens so you can dictate instead of typing. Recognition happens on your phone; only the text is sent, never the audio.",
+        "NSCameraUsageDescription": "Wishfit uses the camera so you can snap a product as a gift idea. The photo is sent to the agent to recognise the product.",
+        "NSPhotoLibraryUsageDescription": "Wishfit reads the photo you choose so the agent can recognise the product in it."
       }
     },
     "android": {

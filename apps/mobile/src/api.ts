@@ -33,7 +33,8 @@ export type Result = {
   model: string;
 };
 
-export type Msg = { role: 'user'; text: string } | { role: 'agent'; result: Result };
+// photo: the picked image's local file, shown in the thread while the file still exists
+export type Msg = { role: 'user'; text: string; photo?: string } | { role: 'agent'; result: Result };
 export type Person = {
   id: string;
   name: string;
@@ -117,8 +118,9 @@ async function request(path: string, body?: unknown): Promise<Result> {
 export const loadResult = (id: string) => request(`/results/${encodeURIComponent(id)}`);
 
 // A follow-up sends only the new message plus previous_id; the server prepends the history
-export async function recommend(p: Person, text: string): Promise<Result> {
-  const base = { language: 'en', recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion };
+// image: a photo of a product as base64; the server names the product and carries on with that as text
+export async function recommend(p: Person, text: string, image?: string): Promise<Result> {
+  const base = { language: 'en', recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
   if (!p.lastResultId) return request('/recommend', { ...base, input_text: text });
   try {
     return await request('/recommend', { ...base, input_text: text, previous_id: p.lastResultId });

@@ -69,12 +69,12 @@ function Root() {
       return next;
     });
 
-  const send = async (person: Person, text: string) => {
+  const send = async (person: Person, text: string, photo?: { uri: string; base64: string }) => {
     setBusyId(person.id);
     setError(null);
-    update(person.id, (p) => ({ ...p, messages: [...p.messages, { role: 'user', text }] }));
+    update(person.id, (p) => ({ ...p, messages: [...p.messages, { role: 'user', text, photo: photo?.uri }] }));
     try {
-      const result = await recommend(person, text);
+      const result = await recommend(person, text, photo?.base64);
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
@@ -173,7 +173,7 @@ function Root() {
           busy={busyId === person.id}
           error={error?.id === person.id ? error.text : null}
           onBack={goBack}
-          onSend={(text) => send(person, text)}
+          onSend={(text, photo) => send(person, text, photo)}
           onPin={(item, resultId) => pin(person.id, item, resultId)}
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
           onEdit={() => setView({ name: 'edit', id: person.id })}
