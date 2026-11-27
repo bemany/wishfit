@@ -128,7 +128,8 @@ export async function recommend(p: Person, text: string, image?: string): Promis
     if (!(e instanceof ApiError) || e.status !== 404) throw e;
     // The server forgot the earlier result (restart): send the whole history from the device instead
     const history = p.messages.flatMap((m) => (m.role === 'user' ? [m.text] : []));
-    return request('/recommend', { ...base, input_text: [...history, text].join('\n\n') });
+    // same shape as the server's own history: first message, then follow-ups marked as such
+    return request('/recommend', { ...base, input_text: [...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n') });
   }
 }
 

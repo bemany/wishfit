@@ -354,8 +354,9 @@ plus occasion, budget and optional preferences. Return ONE JSON object and nothi
 - candidates: 1-5 concrete gift ideas, each phrased as a product search term a price-comparison site would \
 understand (always German: the catalog is idealo.de), most promising first, realistic for the budget. why: the \
 part of the input the idea comes from, quoted or closely paraphrased. Respect dislikes and constraints stated in the input.
-- A line starting with "[Foto]" is a product the giver photographed, named by a vision model: treat it as an \
-explicit product, first candidate, unless the giver's words say otherwise (for example "something like this, but cheaper").
+- "[Foto] <product> (Suchbegriff: <term>)" is a product the giver photographed, named by a vision model. The \
+last "[Foto]" in the input is what the giver is asking about now: make that product the first candidate, whatever \
+came earlier in the conversation, unless the giver's words next to it say otherwise (for example "something like this, but cheaper").
 - Lines starting with "Nachtrag:" are follow-up instructions from the giver after an earlier answer (for \
 example cheaper, something completely different, the person already owns it). Apply them: adjust or replace the \
 candidates accordingly instead of repeating the earlier ones.
@@ -439,8 +440,9 @@ def with_photo(req: RecommendRequest, trace: dict) -> RecommendRequest:
     if not photo.product.strip():
         raise HTTPException(422, "I could not recognize a product in the photo. Try another photo or describe it.")
     trace["sources"].append({"type": "photo", "product": photo.product, "search_term": photo.search_term})
+    # one line, photo first, so it stays one message in the conversation
     line = f"[Foto] {photo.product} (Suchbegriff: {photo.search_term})"
-    return req.model_copy(update={"image_base64": None, "input_text": "\n".join(filter(None, [req.input_text, line]))})
+    return req.model_copy(update={"image_base64": None, "input_text": " ".join(filter(None, [line, (req.input_text or "").strip()]))[:20000]})
 
 
 def understand(req: RecommendRequest, trace: dict, previous_pick: dict | None = None) -> Understood:
