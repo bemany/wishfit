@@ -135,13 +135,24 @@ export default function LandingPage() {
       <section className="flex flex-col gap-8">
         <div className="flex flex-col gap-2">
           <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">Watch</h2>
-          <p className="max-w-xl text-[#5f5f66]">The pitch film, cut from real app screens, and two short ad clips.</p>
+          <p className="max-w-xl text-[#5f5f66]">Two pitch films cut from real app screens, and three short ad clips.</p>
         </div>
-        <video className="w-full rounded-[28px] border-2 border-[#0b0b0c] bg-black" controls preload="metadata" playsInline poster="/video/brag.jpg">
-          <source src="/video/brag.mp4" type="video/mp4" />
-        </video>
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {[
+            { src: 'brag', label: 'The pitch film' },
+            { src: 'paradox', label: 'The paradox of surprise' },
+          ].map((v) => (
+            <figure key={v.src} className="flex flex-col gap-2">
+              <video className="w-full rounded-[28px] border-2 border-[#0b0b0c] bg-black" controls preload="metadata" playsInline poster={`/video/${v.src}.jpg`}>
+                <source src={`/video/${v.src}.mp4`} type="video/mp4" />
+              </video>
+              <figcaption className="font-mono text-xs uppercase tracking-widest text-[#5f5f66]">{v.label}</figcaption>
+            </figure>
+          ))}
+        </div>
+        <div className="grid gap-6 sm:grid-cols-3">
+          {[
+            { src: 'ad-problem', label: 'Stop guessing' },
             { src: 'ad-agent', label: 'Drop anything in' },
             { src: 'ad-moment', label: 'The moment it lands' },
           ].map((v) => (
