@@ -1,18 +1,18 @@
 # CLAUDE.md
 
-Hackathon-Projekt, Abgabe 27.11.2026 um 19:45 CET. Tempo vor Vollständigkeit.
+Hackathon project (Agentic Hackathon Berlin, 27 November 2026). Product name: Wishfit. Speed over completeness.
 
-- Zuerst `docs/plan.md` lesen (Umfang, was gebaut wird und was nur in den Pitch kommt).
-- Bewertungskriterien stehen in `docs/challenges.md`. Jede Arbeit sollte auf ein Kriterium einzahlen.
-- Monorepo: `services/agent` (Backend), `apps/web` (Landingpage), `apps/mobile` (Expo-App, React Native).
-- Der Agent ruft sein Modell über das Vercel AI Gateway auf (OpenAI-kompatibel, Stand 27.11. abends; Nebius
-  Token Factory ist vorerst raus und per `LLM_BASE_URL`/`LLM_API_KEY` wieder einstellbar). Die Entscheidung
-  muss aus einem Live-Call kommen und im Log/Trace sichtbar sein.
-- idealo-Daten kommen nur über den idealo-MCP. Das Backend ist MCP-Client.
-- Norma-Challenge: Änderungen gehen über Pull Requests, nicht direkt auf `main`. Mindestens 2 PRs von
-  verschiedenen Autoren, jeweils vom Norma-GitHub-App geprüft. Keinen Code löschen, nur damit ein
-  Finding verschwindet.
-- Keine Secrets committen. Zugangsdaten in `.env` (gitignored), Beispielwerte in `.env.example`.
-- Sprache im Team: Deutsch. Code und Commits: Englisch.
-- OpenSpec: Anforderungen stehen in `openspec/changes/<change>/` (aktuell `mvp-gift-agent`). Vor neuem Verhalten
-  erst Spec und `tasks.md` anpassen, erledigte Aufgaben dort abhaken. API-Vertrag: `docs/api.md`.
+- Read `README.md` first, then `docs/api.md` (the agent's API contract). `docs/plan.md` and `docs/challenges.md`
+  are the original planning notes in German and partly outdated.
+- Monorepo: `services/agent` (backend), `apps/web` (landing page and web tool), `apps/mobile` (Expo app, React
+  Native).
+- The agent calls its model through an OpenAI-compatible client. Default locally: Nebius Token Factory via
+  `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`; without those it falls back to the Vercel AI Gateway. The decision
+  must come from a live call and be visible in the trace.
+- idealo data comes only through the idealo MCP (`services/agent/idealo.py`). The backend is the MCP client.
+- Changes go through pull requests, not directly to `main`. CI (GitHub Actions) runs the agent self-check, the web
+  lint and build, the mobile typecheck and the OpenSpec validation.
+- No secrets in the repo. Credentials in `.env` (gitignored), names only in `.env.example`.
+- OpenSpec: requirements live in `openspec/changes/<change>/` (currently `mvp-gift-agent`, written in German).
+  Adjust spec and `tasks.md` before adding new behaviour.
+- Team language: German. Code, commits, README and UI: English.
