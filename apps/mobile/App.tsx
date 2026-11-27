@@ -18,7 +18,7 @@ import { C } from './src/theme';
 // Working title, the name vote is still running: change it here only
 const BRAND = 'Wishfit';
 
-type View_ = { name: 'people' } | { name: 'add' } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
+type View_ = { name: 'people' } | { name: 'add' } | { name: 'edit'; id: string } | { name: 'thread'; id: string } | { name: 'detail'; result: Result; id: string | null };
 
 export default function App() {
   // On a font error the app still renders, with the system font
@@ -86,6 +86,22 @@ function Root() {
       <StatusBar style="dark" />
       {view.name === 'add' ? (
         <AddPerson onBack={() => setView({ name: 'people' })} onDone={add} />
+      ) : view.name === 'edit' && person ? (
+        <AddPerson
+          key={`edit-${person.id}`}
+          initial={person}
+          onBack={() => setView({ name: 'thread', id: person.id })}
+          onDone={(fields) => {
+            update(person.id, (p) => ({ ...p, ...fields }));
+            setView({ name: 'thread', id: person.id });
+          }}
+          onDelete={() => {
+            const next = people.filter((p) => p.id !== person.id);
+            setPeople(next);
+            savePeople(next);
+            setView({ name: 'people' });
+          }}
+        />
       ) : view.name === 'thread' && person ? (
         <Thread
           key={person.id}
@@ -95,6 +111,7 @@ function Root() {
           onBack={() => setView({ name: 'people' })}
           onSend={(text) => send(person, text)}
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
+          onEdit={() => setView({ name: 'edit', id: person.id })}
         />
       ) : view.name === 'detail' ? (
         <Detail
