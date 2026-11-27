@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+import amazon
 import idealo
 import storage
 
@@ -405,13 +406,32 @@ def decide(req: RecommendRequest, understood: Understood | None, idealo: list[di
     return call_model("decide", messages, Decision, trace)
 
 
+def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest:
+    """If the input contains a public Amazon wishlist link, read it and add its items to the input text."""
+    url = amazon.find_url(req.input_text) or amazon.find_url(" ".join(req.wishes))
+    if not url:
+        return req
+    try:
+        items, status = amazon.fetch(url)
+    except Exception as exc:
+        items, status = [], type(exc).__name__
+    trace["sources"] = [{"type": "amazon_wishlist", "url": url, "status": status, "items": items}]
+    if items:
+        block = "Amazon-Wunschliste der Person:\n" + "\n".join(f"- {i['title'][:160]}" + (f" ({i['price']})" if i["price"] else "") for i in items[:30])
+    else:
+        block = f"Hinweis: Die verlinkte Amazon-Wunschliste konnte nicht gelesen werden ({status})."
+    text = ((req.input_text or "") + "\n\n" + block)[:20000]
+    return req.model_copy(update={"input_text": text, "wishes": [w for w in req.wishes if not amazon.find_url(w)]})
+
+
 # --- endpoints -------------------------------------------------------------
 
 
 @app.post("/recommend")
 def recommend(req: RecommendRequest) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
-    trace = {"id": result_id, "model_calls": [], "idealo_calls": []}
+    trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
+    req = with_amazon_wishlist(req, trace)
     understood = understand(req, trace) if (req.input_text or "").strip() else None
     if understood:
         # the extracted ideas are researched like explicit wishes
