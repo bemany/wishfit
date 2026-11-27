@@ -59,7 +59,7 @@ die Jury selbst öffnet. Die App ist das Schaustück im Pitch.
 - A: Agent-Backend (`services/agent`)
 - B: Wunschliste einlesen, Demo-Daten als Fallback
 - C: Landingpage (`apps/web`)
-- D: Swift-App (`apps/ios`)
+- D: Expo-App (`apps/mobile`)
 - E: Setup Norma und Nebius, Abgabe-Notizen, Pitch
 
 ## Zeitplan

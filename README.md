@@ -12,7 +12,8 @@ Geschenk plus 2–3 Alternativen, jeweils mit Begründung.
 |---|---|
 | `services/agent` | Backend-Agent: Nebius Token Factory entscheidet, idealo-MCP liefert die Daten |
 | `apps/web` | Landingpage: Schenkender (Name, Budget, Anlass), Beschenkter (Wunschliste), Ergebnis |
-| `apps/ios` | Swift-App (interner TestFlight-Build), zeigt dieselben Ergebnisse |
+| `apps/mobile` | Expo-App (React Native, interner TestFlight-Build, OTA über EAS Update), zeigt dieselben Ergebnisse |
+| `docs/api.md` | API-Vertrag des Agent-Backends, Beispiele in `services/agent/examples` |
 | `docs/plan.md` | Plan, Umfang für heute, Zeitplan, Abgabe-Checkliste |
 | `docs/challenges.md` | Bewertungskriterien der Partner-Challenges |
 
