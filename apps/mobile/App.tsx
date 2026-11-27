@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Linking, PanResponder, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAccount } from './src/account';
 import { idFromUrl, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { C } from './src/theme';
@@ -62,12 +63,17 @@ function Root() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
 
-  const update = (id: string, change: (p: Person) => Person) =>
-    setPeople((all) => {
-      const next = all.map((p) => (p.id === id ? change(p) : p));
-      savePeople(next);
-      return next;
-    });
+  // the ref holds the newest list, so parallel changes (an agent answer and an edit) never overwrite each other
+  const peopleRef = useRef(people);
+  const applyPeople = (f: (all: Person[]) => Person[]) => {
+    const next = f(peopleRef.current);
+    peopleRef.current = next;
+    savePeople(next);
+    setPeople(next);
+  };
+  const account = useAccount(people, me, applyPeople, setMe, peopleRef);
+
+  const update = (id: string, change: (p: Person) => Person) => applyPeople((all) => all.map((p) => (p.id === id ? { ...change(p), updatedAt: Date.now() } : p)));
 
   const send = async (person: Person, text: string, photo?: { uri: string; base64: string }) => {
     setBusyId(person.id);
@@ -91,10 +97,8 @@ function Root() {
   const pin = (id: string, item: Product, resultId: string) => update(id, (p) => togglePin(p, item, resultId));
 
   const add = (fields: Omit<Person, 'id' | 'messages' | 'lastResultId' | 'pins'>) => {
-    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [] };
-    const next = [person, ...people];
-    setPeople(next);
-    savePeople(next);
+    const person: Person = { ...fields, id: `p_${Date.now()}`, messages: [], lastResultId: null, pins: [], updatedAt: Date.now() };
+    applyPeople((all) => [person, ...all]);
     setView({ name: 'thread', id: person.id });
   };
 
@@ -142,10 +146,12 @@ function Root() {
       ) : view.name === 'me' ? (
         <MeScreen
           me={me}
+          account={account}
           onBack={goBack}
           onChange={(next) => {
-            setMe(next);
-            saveMe(next);
+            const stamped = { ...next, updatedAt: Date.now() };
+            setMe(stamped);
+            saveMe(stamped);
           }}
         />
       ) : view.name === 'edit' && person ? (
@@ -160,9 +166,7 @@ function Root() {
             setView({ name: 'thread', id: person.id });
           }}
           onDelete={() => {
-            const next = people.filter((p) => p.id !== person.id);
-            setPeople(next);
-            savePeople(next);
+            account.removePerson(person.id);
             setView({ name: 'people' });
           }}
         />
