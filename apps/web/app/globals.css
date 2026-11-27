@@ -30,3 +30,40 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* Gift-tags landing page (docs/design/gift-tags.md) */
+.gt {
+  font-family: var(--font-text), sans-serif;
+  color: #0b0b0c;
+}
+.gt-display {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 800;
+}
+.gt-mono {
+  font-family: var(--font-label), monospace;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.gt-tag {
+  position: relative;
+  border: 2px solid #0b0b0c;
+  border-radius: 28px;
+  padding: 44px 24px 24px;
+  color: #0b0b0c;
+}
+/* the punched hole */
+.gt-tag::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border: 2px solid #0b0b0c;
+  border-radius: 50%;
+  background: #fff;
+}

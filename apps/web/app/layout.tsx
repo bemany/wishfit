@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, DM_Mono, Geist, Geist_Mono, Instrument_Sans } from "next/font/google";
 import Link from "next/link";
 import { Suspense } from "react";
 import { BRAND } from "@/lib/brand";
@@ -7,10 +7,14 @@ import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+// Gift-tags fonts, used by the landing page only for now.
+const display = Bricolage_Grotesque({ variable: "--font-display", subsets: ["latin"], weight: "800" });
+const text = Instrument_Sans({ variable: "--font-text", subsets: ["latin"] });
+const label = DM_Mono({ variable: "--font-label", subsets: ["latin"], weight: "500" });
 
 export const metadata: Metadata = {
-  title: `${BRAND} – Gut schenken, ohne zu raten`,
-  description: "Wunschliste teilen, der Agent findet mit idealo-Daten das beste Geschenk im Budget.",
+  title: `${BRAND} – the right gift, in your budget`,
+  description: "Drop in a chat, a wishlist link or your own words. The agent searches idealo live and picks one gift in your budget.",
 };
 
 // HeroUI switches themes via the `dark` class, so mirror the system setting onto <html> before paint.
@@ -20,9 +24,9 @@ const followSystemTheme = `(()=>{const m=matchMedia("(prefers-color-scheme: dark
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="de"
+      lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${text.variable} ${label.variable} antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: followSystemTheme }} />
