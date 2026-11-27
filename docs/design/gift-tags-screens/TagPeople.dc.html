@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>People</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tag.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="t" style="width: 390px; height: 844px; padding: 60px 16px 28px; gap: 16px">
+<div class="t-top"><span class="t-word">wishfit</span><a class="t-round t-round--ink" href="TagNew.dc.html" aria-label="Add someone"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></a></div>
+<h1 class="t-display">Who gets a gift next?</h1>
+<div style="display: flex; flex-direction: column; margin-top: 4px">
+<a class="t-tag t-tag--stack" href="TagResult.dc.html" style="--c: var(--tomato)">
+<div class="t-row"><span class="t-mono">Birthday · €60</span><span class="t-mono">Pick ready</span></div>
+<span class="t-name">Mara</span>
+</a>
+<a class="t-tag t-tag--stack" href="TagResult.dc.html" style="--c: var(--lemon)">
+<div class="t-row"><span class="t-mono">Christmas · €150</span><span class="t-mono">1 question</span></div>
+<span class="t-name">Jonas</span>
+</a>
+<a class="t-tag t-tag--stack" href="TagResult.dc.html" style="--c: var(--mint)">
+<div class="t-row"><span class="t-mono">Birthday · €50</span><span class="t-mono">Pick ready</span></div>
+<span class="t-name">Esref</span>
+<span>Bluetooth speaker, in budget, in stock at 9 shops.</span>
+<div class="t-stamps"><span class="t-stamp" style="--r: -3deg">Amazon wishlist<b>7 items read</b></span><span class="t-stamp" style="--r: 2deg">Knows so far<b>2 notes</b></span></div>
+</a>
+</div>
+<div class="t-bar">
+<span class="t-mono t-mute" style="text-align: center">Your tags are private until you share one.</span>
+<nav class="t-tabs" aria-label="Main">
+<a class="t-tab t-tab--on" href="TagPeople.dc.html">People</a>
+<a class="t-tab" href="TagSnap.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 16.500a3.500 3.500 0 100-7 3.500 3.500 0 000 7z"/></svg>Snap</a>
+<a class="t-tab" href="TagMe.dc.html">Me</a>
+</nav>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

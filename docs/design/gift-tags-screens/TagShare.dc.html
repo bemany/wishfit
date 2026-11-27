@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Send my tag</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tag.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="t" style="width: 390px; height: 1040px; padding: 60px 16px 28px; gap: 16px">
+<div class="t-top">
+<a class="t-round" href="TagMe.dc.html" aria-label="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+<span class="t-mono">Send my tag</span>
+<span style="width: 44px"></span>
+</div>
+<h1 class="t-display" style="font-size: 38px; line-height: 37px">Hand your tag to your people.</h1>
+<div style="display: flex; justify-content: center; padding: 6px 0">
+<div class="t-tag" style="--c: var(--lilac); width: 250px; transform: rotate(-4deg); gap: 6px; padding-bottom: 18px">
+<span class="t-mono">Wishfit tag</span>
+<span class="t-name">Esref</span>
+<span class="t-mono">4 wishes · updated today</span>
+</div>
+</div>
+<div style="border: 2px solid var(--ink); border-radius: 24px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px">
+<span class="t-mono t-mute">Message</span>
+<span>Hey, if you ever need a gift idea for me: here is my Wishfit tag. It shows what I actually want and what it costs right now.</span>
+<span class="t-mono" style="text-transform: none; letter-spacing: 0">wishfit.example/t/esref-7f3k</span>
+</div>
+<div style="display: flex; gap: 8px"><button class="t-btn" type="button" style="flex: 1">Share …</button><button class="t-pill t-pill--lg" type="button" style="min-height: 56px; padding: 0 20px">Copy link</button></div>
+
+<div>
+<div class="t-row" style="padding-bottom: 10px"><span class="t-mono t-mute">Who has my tag</span><a class="t-mono" href="TagFriends.dc.html" style="text-decoration: underline">All friends</a></div>
+<div class="t-line"><span class="t-dot" style="--c: var(--tomato)"></span><div style="flex: 1"><b>Mara</b><div class="t-mute" style="font-size: 14px; line-height: 20px">Has your tag · sent you hers</div></div><span class="t-mono">Both ways</span></div>
+<div class="t-line"><span class="t-dot" style="--c: var(--lemon)"></span><div style="flex: 1"><b>Jonas</b><div class="t-mute" style="font-size: 14px; line-height: 20px">Has your tag</div></div><span class="t-mono">Sees 4</span></div>
+<div class="t-line" style="border-bottom: 2px solid var(--ink)"><span class="t-dot" style="--c: var(--paper)"></span><div style="flex: 1"><b>Deniz</b><div class="t-mute" style="font-size: 14px; line-height: 20px">Link sent, not opened yet</div></div><span class="t-mono">Waiting</span></div>
+</div>
+<div class="t-bar"><span class="t-mono t-mute" style="text-align: center">Opening the link asks them to sign in. Friends never see who is buying what.</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

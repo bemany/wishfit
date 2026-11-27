@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snap a product</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tag.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="t" style="width: 390px; height: 844px; padding: 60px 16px 28px; gap: 16px">
+<div class="t-top"><span class="t-word">wishfit</span><span class="t-mono t-mute">Snap</span></div>
+<h1 class="t-display">Seen something good?</h1>
+<div style="position: relative; flex: 1; min-height: 0; border: 2px solid var(--ink); border-radius: 28px; background: #0b0b0c; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; overflow: hidden">
+<svg viewBox="0 0 200 200" aria-hidden="true" style="position: absolute; inset: 28px; width: calc(100% - 56px); height: calc(100% - 56px)" preserveAspectRatio="none"><path d="M0 30V0h30M170 0h30v30M200 170v30h-30M30 200H0v-30" fill="none" stroke="#ffd23f" stroke-width="3" vector-effect="non-scaling-stroke"/></svg>
+<span class="t-mono" style="opacity: .7">Camera preview</span>
+<span style="font: 800 26px/28px 'Bricolage Grotesque', sans-serif; letter-spacing: -.035em; text-align: center; padding: 0 40px">Point at a product, a shop window or a screenshot.</span>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<button class="t-pill t-pill--lg" type="button">Upload photo</button>
+<a href="TagFound.dc.html" aria-label="Take photo" style="width: 76px; height: 76px; border-radius: 999px; border: 2px solid var(--ink); background: var(--lemon); display: grid; place-items: center; flex: none"><span style="width: 54px; height: 54px; border-radius: 999px; border: 2px solid var(--ink); background: var(--paper); display: block"></span></a>
+<button class="t-pill t-pill--lg" type="button">Paste link</button>
+</div>
+<nav class="t-tabs" aria-label="Main">
+<a class="t-tab" href="TagPeople.dc.html">People</a>
+<a class="t-tab t-tab--on" href="TagSnap.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 16.500a3.500 3.500 0 100-7 3.500 3.500 0 000 7z"/></svg>Snap</a>
+<a class="t-tab" href="TagMe.dc.html">Me</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

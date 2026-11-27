@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mara: thread and pick</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tag.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;600;700&family=DM+Mono:wght@500&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="t" style="width: 390px; height: 1500px; padding: 60px 16px 28px; gap: 16px">
+<div class="t-top">
+<a class="t-round" href="TagPeople.dc.html" aria-label="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+<span class="t-mono">Mara · Birthday · €60</span>
+<span style="width: 44px"></span>
+</div>
+
+<div class="t-bubble"><span style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">[12.11.26, 19:02] Mara: ran 10 km again today, my earphones keep falling out …</span><span class="t-mono" style="opacity: .7">WhatsApp chat · 5 messages</span></div>
+
+<div class="t-say">She runs, loves coffee, reads crime novels and is cutting out plastic.</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px"><span class="t-pill">Running</span><span class="t-pill">Coffee</span><span class="t-pill">Crime novels</span><span class="t-pill">Less plastic</span></div>
+
+<div class="t-tag" style="--c: var(--tomato); margin-top: 6px; gap: 14px">
+<div class="t-row"><span class="t-mono">For Mara · my pick</span><span class="t-mono">Buy now</span></div>
+<span class="t-name" style="font-size: 30px; line-height: 30px">Sport in-ear headphones with ear hook</span>
+<div class="t-row" style="align-items: flex-end"><span class="t-price">€48.89</span><span class="t-mono" style="text-align: right">€44.90<br>+ €3.99 shipping</span></div>
+<span>Her earphones keep falling out on runs. This pair fits the budget with shipping and costs less than its 90-day average.</span>
+<div class="t-stamps">
+<span class="t-stamp" style="--r: -3deg">Price vs 90-day avg<b>€44.90 · avg €52.00</b></span>
+<span class="t-stamp" style="--r: 2deg">In stock<b>4 shops</b></span>
+<span class="t-stamp" style="--r: -1deg">Budget<b>€48.89 of €60</b></span>
+</div>
+<span class="t-mono">Data from idealo · example merchant · 2-3 working days</span>
+<a class="t-btn" href="TagDetail.dc.html">See why and where to buy</a>
+</div>
+
+<div>
+<span class="t-mono t-mute" style="display: block; padding-bottom: 10px">Also fits</span>
+<div class="t-line"><span class="t-dot" style="--c: var(--mint)"></span><div style="flex: 1; min-width: 0"><b>Steel water bottle 0.75 l</b><div class="t-mute" style="font-size: 14px; line-height: 20px">“the old bottle leaks” · 7 offers</div></div><b>€29.45</b></div>
+<div class="t-line" style="border-bottom: 2px solid var(--ink)"><span class="t-dot" style="--c: var(--lemon)"></span><div style="flex: 1; min-width: 0"><b>Hand coffee grinder</b><div class="t-mute" style="font-size: 14px; line-height: 20px">“the grinder at work is junk” · wait, price is up</div></div><b>[price]</b></div>
+</div>
+
+<div class="t-bubble">She already has headphones. Something for the kitchen?</div>
+<div class="t-say">Got it. Looking at coffee gear under €60.</div>
+
+<div class="t-bar">
+<div style="display: flex; gap: 8px; overflow: hidden; margin-right: -16px"><span class="t-pill t-pill--lg">Cheaper</span><span class="t-pill t-pill--lg">Something else</span><span class="t-pill t-pill--lg">She has it</span></div>
+<div style="display: flex; gap: 8px; align-items: center">
+<input id="tr-msg" class="t-input" aria-label="Message" placeholder="Tell me more about Mara …">
+<button class="t-round t-round--ink" type="button" aria-label="Send" style="width: 52px; height: 52px"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
