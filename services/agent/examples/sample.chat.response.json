@@ -1,0 +1,90 @@
+{
+  "id": "r_example03",
+  "model": "example-model",
+  "trace_url": "/trace/r_example03",
+  "created_at": "2026-11-27T18:00:00+01:00",
+  "status": "recommendation",
+  "understood": {
+    "summary": "Mara läuft regelmäßig, trinkt gern Kaffee, liest Krimis und möchte Plastik vermeiden.",
+    "interests": [
+      "Laufen",
+      "Kaffee",
+      "Krimis",
+      "weniger Plastik"
+    ],
+    "candidates": [
+      {
+        "idea": "Sport-Kopfhörer, die beim Laufen halten",
+        "why": "\"meine Kopfhörer fallen ständig raus\""
+      },
+      {
+        "idea": "Trinkflasche, die nicht tropft, ohne Plastik",
+        "why": "\"die alte Trinkflasche tropft\", \"nix mit Plastik\""
+      },
+      {
+        "idea": "Handkaffeemühle",
+        "why": "\"die Mühle im Büro ist Schrott\""
+      }
+    ]
+  },
+  "top": {
+    "wish": "Sport-Kopfhörer, die beim Laufen halten",
+    "product_name": "Sport-In-Ear-Kopfhörer mit Ohrbügel (Beispielprodukt)",
+    "action": "buy",
+    "reason": "Mara läuft regelmäßig und ihre Kopfhörer fallen heraus. Das Modell mit Ohrbügel liegt inklusive Versand im Budget, ist lieferbar und kostet weniger als im 90-Tage-Schnitt.",
+    "price_eur": 44.9,
+    "shipping_eur": 3.99,
+    "total_eur": 48.89,
+    "merchant": "Beispielhändler",
+    "offer_url": "https://www.idealo.de/",
+    "image_url": null,
+    "available": true,
+    "delivery_estimate": "2-3 Werktage",
+    "signals": [
+      {
+        "type": "price_history",
+        "label": "Preis vs. 90-Tage-Schnitt",
+        "value": "44,90 € (Schnitt 52,00 €)"
+      },
+      {
+        "type": "availability",
+        "label": "Verfügbarkeit",
+        "value": "auf Lager bei 4 Händlern"
+      },
+      {
+        "type": "budget",
+        "label": "Budget",
+        "value": "48,89 € von 60 €"
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "wish": "Trinkflasche, die nicht tropft, ohne Plastik",
+      "product_name": "Edelstahl-Trinkflasche 0,75 l (Beispielprodukt)",
+      "action": "alternative",
+      "reason": "Passt zum Wunsch nach weniger Plastik und ersetzt die tropfende Flasche. Günstiger, aber weniger persönlich als die Kopfhörer.",
+      "price_eur": 24.95,
+      "shipping_eur": 4.5,
+      "total_eur": 29.45,
+      "merchant": "Beispielhändler 2",
+      "offer_url": "https://www.idealo.de/",
+      "image_url": null,
+      "available": true,
+      "delivery_estimate": "3-5 Werktage",
+      "signals": [
+        {
+          "type": "category",
+          "label": "Kategorie",
+          "value": "Trinkflaschen, Edelstahl"
+        },
+        {
+          "type": "offers",
+          "label": "Angebote",
+          "value": "7 Angebote ab 24,95 €"
+        }
+      ]
+    }
+  ],
+  "uncertainty": null
+}

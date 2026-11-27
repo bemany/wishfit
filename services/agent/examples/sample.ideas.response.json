@@ -1,0 +1,38 @@
+{
+  "id": "r_example04",
+  "model": "example-model",
+  "trace_url": "/trace/r_example04",
+  "created_at": "2026-11-27T18:00:00+01:00",
+  "status": "ideas_only",
+  "understood": {
+    "summary": "Mara läuft regelmäßig, trinkt gern Kaffee, liest Krimis und möchte Plastik vermeiden.",
+    "interests": [
+      "Laufen",
+      "Kaffee",
+      "Krimis",
+      "weniger Plastik"
+    ],
+    "candidates": [
+      {
+        "idea": "Sport-Kopfhörer, die beim Laufen halten",
+        "why": "\"meine Kopfhörer fallen ständig raus\""
+      },
+      {
+        "idea": "Trinkflasche, die nicht tropft, ohne Plastik",
+        "why": "\"die alte Trinkflasche tropft\", \"nix mit Plastik\""
+      },
+      {
+        "idea": "Handkaffeemühle",
+        "why": "\"die Mühle im Büro ist Schrott\""
+      }
+    ]
+  },
+  "top": null,
+  "alternatives": [],
+  "uncertainty": {
+    "reasons": [
+      "Für diese Geschenkideen liegen noch keine idealo-Daten vor (Preise, Verfügbarkeit, Angebote)."
+    ],
+    "question": "Soll ich eine der Ideen genauer prüfen, sobald Preisdaten verfügbar sind?"
+  }
+}

@@ -6,23 +6,25 @@ first, then the code.
 
 ## POST /recommend
 
-Request (`services/agent/examples/simple.request.json`, `chaotic.request.json`):
+Request (`services/agent/examples/simple.request.json`, `chaotic.request.json`, `chat.request.json`):
 
 | Field | Type | Notes |
 |---|---|---|
-| `wishes` | string[] | required, 1-10 product names or free text |
+| `input_text` | string? | anything that describes the person or their wishes: a pasted wishlist, a chat export (e.g. WhatsApp), notes, a dictated description. Up to 20,000 characters. The agent extracts gift ideas from it. |
+| `wishes` | string[]? | optional, 0-10 explicit product names or free-text wishes. At least one of `input_text` and `wishes` must be given. |
 | `budget_eur` | number | required, total budget including shipping |
 | `occasion` | string | required |
 | `recipient_name` | string? | optional |
 | `preferences` | string? | optional free text (brand, colour, lifestyle) |
-| `demo_case` | `"simple"` \| `"chaotic"`? | optional: use the stored idealo snapshot instead of live MCP data. The model call is always live. |
+| `demo_case` | `"simple"` \| `"chaotic"` \| `"chat"`? | optional: use the stored idealo snapshot instead of live MCP data. The model call is always live. |
 
-Response (`sample.response.json`, `sample.clarification.response.json`):
+Response (`sample.response.json`, `sample.clarification.response.json`, `sample.chat.response.json`, `sample.ideas.response.json`):
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | result id, use with `/results/{id}` and `/trace/{id}` |
-| `status` | `"recommendation"` \| `"needs_clarification"` | |
+| `status` | `"recommendation"` \| `"needs_clarification"` \| `"ideas_only"` | `ideas_only`: the agent understood the input and lists gift ideas, but has no idealo data for them (`top` null, `uncertainty` says why) |
+| `understood` | `{summary: string, interests: string[], candidates: {idea: string, why: string}[]}` \| null | what the agent took from `input_text`; null (or absent) when only `wishes` were given. `why` quotes or paraphrases the part of the input the idea comes from. |
 | `top` | Recommendation \| null | null when `needs_clarification` |
 | `alternatives` | Recommendation[] | 2-3 entries, may be empty when `needs_clarification` |
 | `uncertainty` | `{reasons: string[], question: string}` \| null | set when data is missing or contradictory |
@@ -57,7 +59,7 @@ Returns the stored response of an earlier `POST /recommend`. `404` if unknown.
 {
   "id": "r_...",
   "model_calls": [
-    {"model": "...", "input": [{"role": "system", "content": "..."}], "output": "...",
+    {"step": "understand | decide", "model": "...", "input": [{"role": "system", "content": "..."}], "output": "...",
      "started_at": "ISO 8601", "duration_ms": 1234, "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
   ],
   "idealo_calls": [
