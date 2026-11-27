@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import { HeroVideo } from "./hero-video";
 
@@ -57,11 +56,11 @@ export default function LandingPage() {
             in your budget, with receipts.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Link href="/try" className={`${pill} bg-[#0b0b0c] text-white`}>
-              Try it
-            </Link>
-            <a href="#film" className={`${pill} bg-white`}>
+            <a href="#film" className={`${pill} bg-[#0b0b0c] text-white`}>
               Watch the film
+            </a>
+            <a href="#how" className={`${pill} bg-white`}>
+              How it works
             </a>
           </div>
         </div>
@@ -191,9 +190,9 @@ export default function LandingPage() {
 
       <section className="flex flex-col items-start gap-6 border-t-2 border-[#0b0b0c] pt-10">
         <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">Who are you buying for?</h2>
-        <Link href="/try" className={`${pill} bg-[#0b0b0c] text-white`}>
-          Try it
-        </Link>
+        <a href="#film" className={`${pill} bg-[#0b0b0c] text-white`}>
+          Watch the film
+        </a>
         <footer className="gt-mono mt-6 normal-case">
           Built at the Agentic Hackathon Berlin with the idealo MCP and the Nebius Token Factory.
         </footer>
