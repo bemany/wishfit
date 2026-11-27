@@ -1,0 +1,14 @@
+[project]
+name = "wishloop-agent"
+version = "0.1.0"
+description = "Wishloop gift-recommendation agent API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "openai",
+    "python-dotenv",
+    "psycopg[binary]",
+    "mcp",
+    "httpx",
+]
