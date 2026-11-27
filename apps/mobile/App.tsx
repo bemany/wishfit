@@ -1,21 +1,28 @@
+import './global.css';
+
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Linking,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Linking, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Alert } from 'heroui-native/alert';
+import { Button } from 'heroui-native/button';
+import { Card } from 'heroui-native/card';
+import { Chip } from 'heroui-native/chip';
+import { Input } from 'heroui-native/input';
+import { Label } from 'heroui-native/label';
+import { HeroUINativeProvider } from 'heroui-native/provider';
+import { Skeleton } from 'heroui-native/skeleton';
+import { Spinner } from 'heroui-native/spinner';
+import { Surface } from 'heroui-native/surface';
+import { TextField } from 'heroui-native/text-field';
 
 import sampleClarification from './assets/sample.clarification.response.json';
 import sampleRecommendation from './assets/sample.response.json';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
+
+// Working title, the name vote is still running: change it here only
+const BRAND = 'Wishfit';
 
 // Mirrors docs/api.md
 type Signal = { type: string; label: string; value: string };
@@ -44,10 +51,10 @@ type Result = {
 };
 
 const ACTIONS = {
-  buy: { label: 'Kaufen', color: '#15803d' },
-  wait: { label: 'Warten', color: '#b45309' },
-  alternative: { label: 'Alternative', color: '#1d4ed8' },
-};
+  buy: { label: 'Jetzt kaufen', color: 'success' },
+  wait: { label: 'Besser warten', color: 'warning' },
+  alternative: { label: 'Alternative', color: 'default' },
+} as const;
 
 const eur = (n: number | null) =>
   n == null ? '–' : n.toFixed(2).replace('.', ',') + ' €';
@@ -56,73 +63,93 @@ const eur = (n: number | null) =>
 export const idFromUrl = (url: string | null) =>
   url?.match(/results\/([^/?#]+)/)?.[1] ?? null;
 
-function Row({ label, value }: { label: string; value: string }) {
+const tabular = { fontVariant: ['tabular-nums' as const] };
+
+// The idealo data that carries the decision: always visible, never collapsed
+function Signals({ signals }: { signals: Signal[] }) {
+  if (signals.length === 0) return null;
   return (
-    <View style={s.row}>
-      <Text style={s.rowLabel}>{label}</Text>
-      <Text style={s.rowValue}>{value}</Text>
-    </View>
+    <Surface variant="secondary" className="gap-2 rounded-2xl p-3">
+      <Text className="text-xs font-medium text-muted">Datensignale von idealo · {signals.length}</Text>
+      {signals.map((sig, i) => (
+        <View key={i} className="gap-0.5 border-t border-border pt-2">
+          <Text className="text-xs text-muted">{sig.label}</Text>
+          <Text className="text-sm font-semibold text-foreground" style={tabular}>
+            {sig.value}
+          </Text>
+        </View>
+      ))}
+    </Surface>
   );
 }
 
-function Card({ rec, top }: { rec: Recommendation; top?: boolean }) {
-  const action = ACTIONS[rec.action] ?? { label: rec.action, color: '#444' };
+function RecCard({ rec, top }: { rec: Recommendation; top?: boolean }) {
+  const action = ACTIONS[rec.action] ?? { label: rec.action, color: 'default' as const };
+  const meta = [
+    rec.merchant,
+    rec.delivery_estimate && `Lieferung in ${rec.delivery_estimate}`,
+    rec.available == null ? null : rec.available ? 'verfügbar' : 'nicht verfügbar',
+  ].filter(Boolean);
   return (
-    <View style={[s.card, top && s.cardTop]}>
-      <Text style={[s.badge, { backgroundColor: action.color }]}>{action.label}</Text>
-      <Text style={s.product}>{rec.product_name}</Text>
-      <Text style={s.muted}>Wunsch: {rec.wish}</Text>
-      <Text style={s.reason}>{rec.reason}</Text>
-      <Row label="Preis" value={eur(rec.price_eur)} />
-      <Row label="Versand" value={eur(rec.shipping_eur)} />
-      <Row label="Gesamt" value={eur(rec.total_eur)} />
-      <Row label="Händler" value={rec.merchant ?? '–'} />
-      <Row
-        label="Verfügbarkeit"
-        value={rec.available == null ? 'unbekannt' : rec.available ? 'verfügbar' : 'nicht verfügbar'}
-      />
-      <Row label="Lieferung" value={rec.delivery_estimate ?? '–'} />
-      <View style={s.chips}>
-        {rec.signals.map((sig, i) => (
-          <Text key={i} style={s.chip}>
-            {sig.label}: {sig.value}
-          </Text>
-        ))}
+    <Card className={top ? 'gap-3 border-2 border-accent' : 'gap-3'}>
+      {top && <Text className="text-xs font-medium text-muted">Top-Empfehlung</Text>}
+      <Chip variant="soft" color={action.color} size="sm" className="self-start">
+        <Chip.Label>{action.label}</Chip.Label>
+      </Chip>
+      <View className="gap-1">
+        <Text className="text-lg font-semibold text-foreground">{rec.product_name}</Text>
+        <Text className="text-xs text-muted">Wunsch: {rec.wish}</Text>
       </View>
+      <Text className="text-base leading-6 text-foreground">{rec.reason}</Text>
+      <View className="gap-0.5">
+        <Text className={top ? 'text-3xl font-bold text-foreground' : 'text-2xl font-bold text-foreground'} style={tabular}>
+          {eur(rec.total_eur)}
+        </Text>
+        <Text className="text-xs text-muted" style={tabular}>
+          {eur(rec.price_eur)} + {eur(rec.shipping_eur)} Versand
+        </Text>
+        {meta.length > 0 && <Text className="text-xs text-muted">{meta.join(' · ')}</Text>}
+      </View>
+      <Signals signals={rec.signals} />
       {rec.offer_url && (
-        <Pressable style={s.button} onPress={() => Linking.openURL(rec.offer_url!)}>
-          <Text style={s.buttonText} maxFontSizeMultiplier={1.6}>Zum Angebot</Text>
-        </Pressable>
+        <Button
+          variant={top ? 'primary' : 'secondary'}
+          className="min-h-11"
+          onPress={() => Linking.openURL(rec.offer_url!)}
+        >
+          <Button.Label maxFontSizeMultiplier={1.6}>Zum Angebot</Button.Label>
+        </Button>
       )}
-    </View>
+    </Card>
   );
 }
 
 function ResultView({ result }: { result: Result }) {
   if (result.status === 'needs_clarification' || !result.top) {
     return (
-      <View style={s.card}>
-        <Text style={[s.badge, { backgroundColor: '#b45309' }]}>Rückfrage</Text>
-        <Text style={s.product}>Wir sind uns noch nicht sicher</Text>
-        {result.uncertainty?.reasons.map((r, i) => (
-          <Text key={i} style={s.reason}>
-            • {r}
-          </Text>
-        ))}
-        <Text style={s.question}>{result.uncertainty?.question}</Text>
-      </View>
+      <Alert status="warning">
+        <Alert.Indicator />
+        <Alert.Content className="gap-2">
+          <Alert.Title>Ich bin mir nicht sicher</Alert.Title>
+          {result.uncertainty?.reasons.map((r, i) => (
+            <Alert.Description key={i}>• {r}</Alert.Description>
+          ))}
+          <Text className="text-lg font-semibold text-foreground">{result.uncertainty?.question}</Text>
+        </Alert.Content>
+      </Alert>
     );
   }
   return (
     <>
-      <Text style={s.section}>Top-Empfehlung</Text>
-      <Card rec={result.top} top />
-      {result.alternatives.length > 0 && <Text style={s.section}>Alternativen</Text>}
+      <RecCard rec={result.top} top />
+      {result.alternatives.length > 0 && (
+        <Text className="mt-2 text-xl font-semibold text-foreground">Alternativen</Text>
+      )}
       {result.alternatives.map((rec, i) => (
-        <Card key={i} rec={rec} />
+        <RecCard key={i} rec={rec} />
       ))}
-      <Text style={s.muted}>
-        Ergebnis {result.id} · Modell {result.model}
+      <Text className="text-xs text-muted">
+        Ergebnis {result.id} · entschieden von {result.model} über die Nebius Token Factory
       </Text>
     </>
   );
@@ -173,120 +200,66 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={s.screen}>
-      <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Text style={s.title}>wishloop</Text>
-        <Text style={s.muted}>Geschenk-Empfehlung ansehen</Text>
-        <View style={s.inputRow}>
-          <TextInput
-            style={s.input}
-            maxFontSizeMultiplier={1.6}
-            value={input}
-            onChangeText={setInput}
-            placeholder="Ergebnis-ID, z. B. r_abc123"
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="go"
-            onSubmitEditing={() => load(input)}
-          />
-          <Pressable style={s.button} onPress={() => load(input)}>
-            <Text style={s.buttonText} maxFontSizeMultiplier={1.6}>Laden</Text>
-          </Pressable>
-        </View>
-        <View style={s.inputRow}>
-          <Pressable style={s.secondary} onPress={() => showSample(sampleRecommendation)}>
-            <Text style={s.secondaryText} maxFontSizeMultiplier={1.6}>Beispiel: Empfehlung</Text>
-          </Pressable>
-          <Pressable style={s.secondary} onPress={() => showSample(sampleClarification)}>
-            <Text style={s.secondaryText} maxFontSizeMultiplier={1.6}>Beispiel: Rückfrage</Text>
-          </Pressable>
-        </View>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <HeroUINativeProvider>
+        <SafeAreaView className="flex-1 bg-background">
+          <StatusBar style="dark" />
+          <ScrollView contentContainerClassName="gap-3 p-4 pt-14" keyboardShouldPersistTaps="handled">
+            <Text className="text-xl font-bold text-foreground">{BRAND}</Text>
+            <Text className="text-3xl font-bold text-foreground">Das beste Geschenk im Budget, mit Beleg.</Text>
+            <TextField>
+              <Label>Ergebnis-Code</Label>
+              <View className="flex-row items-center gap-2">
+                <Input
+                  className="min-h-11 flex-1"
+                  maxFontSizeMultiplier={1.6}
+                  value={input}
+                  onChangeText={setInput}
+                  placeholder="z. B. r_abc123"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="go"
+                  onSubmitEditing={() => load(input)}
+                />
+                <Button className="min-h-11" onPress={() => load(input)}>
+                  <Button.Label maxFontSizeMultiplier={1.6}>Öffnen</Button.Label>
+                </Button>
+              </View>
+            </TextField>
+            <View className="flex-row gap-2">
+              <Button variant="secondary" size="sm" className="min-h-11 flex-1" onPress={() => showSample(sampleRecommendation)}>
+                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel: Empfehlung</Button.Label>
+              </Button>
+              <Button variant="secondary" size="sm" className="min-h-11 flex-1" onPress={() => showSample(sampleClarification)}>
+                <Button.Label maxFontSizeMultiplier={1.6}>Beispiel: Rückfrage</Button.Label>
+              </Button>
+            </View>
 
-        {loading && <ActivityIndicator style={s.spinner} />}
-        {error && (
-          <View style={[s.card, s.errorCard]}>
-            <Text style={s.product}>Das hat nicht geklappt</Text>
-            <Text style={s.reason}>{error}</Text>
-            <Pressable style={s.button} onPress={() => load(lastId)}>
-              <Text style={s.buttonText} maxFontSizeMultiplier={1.6}>Erneut versuchen</Text>
-            </Pressable>
-          </View>
-        )}
-        {result && <ResultView result={result} />}
-      </ScrollView>
-    </SafeAreaView>
+            {loading && (
+              <View className="gap-3 pt-2">
+                <View className="flex-row items-center gap-2">
+                  <Spinner size="sm" />
+                  <Text className="text-sm text-muted">Ergebnis wird geladen …</Text>
+                </View>
+                <Skeleton className="h-40 rounded-2xl" />
+              </View>
+            )}
+            {error && (
+              <Alert status="danger">
+                <Alert.Indicator />
+                <Alert.Content className="gap-2">
+                  <Alert.Title>Das hat nicht geklappt</Alert.Title>
+                  <Alert.Description>{error}</Alert.Description>
+                  <Button variant="secondary" className="min-h-11 self-start" onPress={() => load(lastId)}>
+                    <Button.Label maxFontSizeMultiplier={1.6}>Erneut versuchen</Button.Label>
+                  </Button>
+                </Alert.Content>
+              </Alert>
+            )}
+            {result && <ResultView result={result} />}
+          </ScrollView>
+        </SafeAreaView>
+      </HeroUINativeProvider>
+    </GestureHandlerRootView>
   );
 }
-
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f6f5f1' },
-  content: { padding: 16, paddingTop: 56, gap: 12 },
-  title: { fontSize: 30, fontWeight: '800', color: '#111' },
-  muted: { color: '#666', fontSize: 13 },
-  section: { fontSize: 18, fontWeight: '700', color: '#111', marginTop: 8 },
-  inputRow: { flexDirection: 'row', gap: 8 },
-  input: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 44,
-    fontSize: 16,
-  },
-  button: {
-    backgroundColor: '#111',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  secondary: {
-    flex: 1,
-    borderColor: '#111',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  secondaryText: { color: '#111', fontWeight: '600', fontSize: 13, textAlign: 'center' },
-  spinner: { marginTop: 24 },
-  card: { backgroundColor: '#fff', borderRadius: 14, padding: 16, gap: 8 },
-  cardTop: { borderColor: '#15803d', borderWidth: 2 },
-  errorCard: { borderColor: '#b91c1c', borderWidth: 1 },
-  badge: {
-    alignSelf: 'flex-start',
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  product: { fontSize: 18, fontWeight: '700', color: '#111' },
-  reason: { fontSize: 15, lineHeight: 21, color: '#222' },
-  question: { fontSize: 16, fontWeight: '700', color: '#111', marginTop: 4 },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  rowLabel: { color: '#666', fontSize: 14 },
-  rowValue: { color: '#111', fontSize: 14, fontWeight: '600' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
-  chip: {
-    backgroundColor: '#eef2ff',
-    color: '#1e3a8a',
-    fontSize: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-});
