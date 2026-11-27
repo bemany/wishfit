@@ -11,3 +11,6 @@ xcuserdata/
 *.xcuserstate
 .venv/
 __pycache__/
+
+# Claude Code agent worktrees
+.claude/worktrees/
