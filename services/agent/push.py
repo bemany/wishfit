@@ -9,6 +9,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Callable, Literal
 
 import httpx
@@ -24,7 +25,11 @@ router = APIRouter()
 
 DROP_PERCENT = 10.0
 OCCASION_DAYS = 7
-CRON_BUDGET_S = 250
+CRON_BUDGET_S = 200  # price phase; the send phase gets its own budget
+SEND_BUDGET_S = 40
+SEND_WORKERS = 5
+APNS_TIMEOUT_S = 8
+BERLIN = ZoneInfo("Europe/Berlin")
 MAX_ITEMS_PER_USER = 100
 TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32,200}$")
 DEAD_REASONS = {"BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic"}
@@ -115,7 +120,7 @@ def apns_send(token: str, payload: dict) -> tuple[bool, str | None]:
     host = "api.sandbox.push.apple.com" if os.environ.get("APNS_ENV") == "sandbox" else "api.push.apple.com"
     try:
         if _client is None:
-            _client = httpx.Client(http2=True, timeout=15)
+            _client = httpx.Client(http2=True, timeout=APNS_TIMEOUT_S)
         r = _client.post(
             f"https://{host}/3/device/{token}",
             json=payload,
@@ -160,6 +165,14 @@ def notify(user_id: str, title: str, body: str, extra: dict) -> int:
 
 
 # --- daily check -------------------------------------------------------------------
+
+
+class PriceUnavailable(Exception):
+    """idealo failed or timed out (as opposed to a lookup that found nothing)."""
+
+
+def today_berlin() -> date:
+    return datetime.now(BERLIN).date()
 
 
 def norm(title: str) -> str:
@@ -281,11 +294,20 @@ def compose(items: list[dict], lang: str) -> tuple[str, str, dict]:
     return "Wishfit", body, extra
 
 
-def run_daily(price_fn: Callable[[str | None, str], dict | None], open_session: Callable[[], str | None],
-              budget_s: float = CRON_BUDGET_S, today: date | None = None) -> dict:
-    """Check prices once per distinct wish, then send at most one summary per account. Returns {checked, alerts_sent}."""
+def run_daily(price_fn: Callable[..., dict | None], open_session: Callable[[], str | None],
+              budget_s: float = CRON_BUDGET_S, today: date | None = None, send_budget_s: float = SEND_BUDGET_S) -> dict:
+    """Price phase (once per distinct wish, until budget_s), then send phase (at most one summary per account, own
+    budget). price_fn returns None for "no hit" and raises PriceUnavailable on idealo errors; an error leaves the
+    snapshot alone. Snapshots of wishes with an event are written only once every account that should hear about it
+    has, so an aborted run does not swallow events."""
+    with db.cron_lock() as got:
+        if not got:
+            return {"skipped": True}
+        return _run_daily(price_fn, open_session, budget_s, today or today_berlin(), send_budget_s)
+
+
+def _run_daily(price_fn, open_session, budget_s: float, today: date, send_budget_s: float) -> dict:
     started = time.monotonic()
-    today = today or datetime.now(timezone.utc).date()
     users = db.users_with_devices()
     per_user = {u: collect(u)[0] for u in users}
     keys: dict[str, str] = {}
@@ -294,18 +316,17 @@ def run_daily(price_fn: Callable[[str | None, str], dict | None], open_session: 
             keys.setdefault(w["key"], w["title"])
     snaps = db.get_snapshots(list(keys))
     events: dict[str, dict] = {}
-    checked = 0
+    pending: dict[str, tuple[float | None, bool]] = {}  # key -> snapshot to write
     if keys:
         session = open_session()
         deadline = started + budget_s
 
         def one(key: str) -> None:
-            nonlocal checked
             if time.monotonic() >= deadline:
                 return
             try:
-                price = price_fn(session, keys[key])
-            except Exception:
+                price = price_fn(session, keys[key], deadline)
+            except Exception:  # idealo error or timeout: not "no hit"; leave the snapshot as it is
                 return
             old = snaps.get(key)
             new_price = price["price_eur"] if price else None
@@ -316,24 +337,47 @@ def run_daily(price_fn: Callable[[str | None, str], dict | None], open_session: 
                 if old["in_stock"] is False:
                     ev["back"] = True
             events[key] = ev
-            db.put_snapshot(key, new_price if price else (old or {}).get("price_eur"), price is not None)
-            checked += 1
+            pending[key] = (new_price if price else (old or {}).get("price_eur"), price is not None)
 
         # idealo.call_tool throttles to 3 calls/s across threads
         with ThreadPoolExecutor(max_workers=3) as pool:
             list(pool.map(one, list(keys)))
+    checked = len(pending)
+
+    send_deadline = time.monotonic() + send_budget_s
+    waiting: dict[str, int] = {}  # event key -> accounts that have not heard about it yet
+    lock = threading.Lock()
     sent = 0
-    for u in users:
+
+    def serve(u: str) -> None:
+        nonlocal sent
         lang = user_language(u)
         cands = build(u, lang, events, today)
+        ev_keys = {c["w"]["key"] for c in cands if c["rank"] < 2}
         seen, sent_today = db.alerts_seen(u, [c["key"] for c in cands], today.isoformat())
-        if sent_today:
-            continue
-        items = [c for c in cands if c["key"] not in seen]
-        if not items:
-            continue
-        title, body, extra = compose(items, lang)
-        if notify(u, title, body, extra):
-            db.log_alerts(u, [i["key"] for i in items], today.isoformat())
-            sent += 1
+        fresh = [c for c in cands if c["key"] not in seen]
+        delivered = False
+        if not sent_today and fresh and time.monotonic() < send_deadline:
+            claimed = set(db.claim_alerts(u, [c["key"] for c in fresh], today.isoformat()))
+            items = [c for c in fresh if c["key"] in claimed]
+            if items:
+                title, body, extra = compose(items, lang)
+                if notify(u, title, body, extra):
+                    delivered = True
+                else:
+                    db.release_alerts(u, list(claimed))
+        # events this account is done with: delivered, or already sent earlier
+        done = delivered or not fresh
+        with lock:
+            sent += delivered
+            for k in ev_keys:
+                if not done:
+                    waiting[k] = waiting.get(k, 0) + 1
+
+    with ThreadPoolExecutor(max_workers=SEND_WORKERS) as pool:
+        list(pool.map(serve, users))
+    for key, (price_eur, in_stock) in pending.items():
+        if events.get(key) and waiting.get(key):
+            continue  # keep the old snapshot so tomorrow's run sees the event again
+        db.put_snapshot(key, price_eur, in_stock)
     return {"checked": checked, "alerts_sent": sent}

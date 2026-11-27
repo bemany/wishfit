@@ -3,6 +3,7 @@
 Schema work runs once per process under an advisory lock, so parallel cold starts do not collide.
 """
 
+import contextlib
 import itertools
 import os
 import secrets
@@ -444,14 +445,18 @@ def get_language(user_id: str) -> str | None:
 
 
 def add_device(user_id: str, token: str, platform: str = "ios") -> None:
-    """A token belongs to one account: registering it again moves it."""
+    """A token belongs to one account: registering it again moves it (the old account loses the device;
+    last_ok_at is reset because the new owner has not been reached yet)."""
     if not use_postgres():
-        _devices[token] = {"user_id": user_id, "platform": platform, "last_ok_at": None}
+        old = _devices.get(token)
+        same = old is not None and old["user_id"] == user_id
+        _devices[token] = {"user_id": user_id, "platform": platform, "last_ok_at": old["last_ok_at"] if same else None}
         return
     with connect() as conn:
         conn.execute(
             "insert into devices (token, user_id, platform) values (%s, %s, %s)"
-            " on conflict (token) do update set user_id = excluded.user_id, platform = excluded.platform",
+            " on conflict (token) do update set user_id = excluded.user_id, platform = excluded.platform,"
+            " last_ok_at = case when devices.user_id = excluded.user_id then devices.last_ok_at else null end",
             (token, user_id, platform),
         )
 
@@ -529,14 +534,56 @@ def alerts_seen(user_id: str, keys: list[str], today: str) -> tuple[set[str], bo
         return seen, sent is not None
 
 
-def log_alerts(user_id: str, keys: list[str], today: str) -> None:
+def claim_alerts(user_id: str, keys: list[str], today: str) -> list[str]:
+    """Atomically log `keys` as sent; returns only the ones this call newly claimed (insert ... on conflict do nothing)."""
+    if not use_postgres():
+        claimed = []
+        for k in keys:
+            if (user_id, k) not in _alerts:
+                _alerts[(user_id, k)] = today
+                claimed.append(k)
+        return claimed
+    with connect() as conn:
+        return [k for k in keys if conn.execute(
+            "insert into alert_log (user_id, alert_key, sent_on) values (%s, %s, %s)"
+            " on conflict do nothing returning alert_key", (user_id, k, today)).fetchone()]
+
+
+def release_alerts(user_id: str, keys: list[str]) -> None:
+    """Undo claim_alerts when nothing was delivered."""
     if not use_postgres():
         for k in keys:
-            _alerts.setdefault((user_id, k), today)
+            _alerts.pop((user_id, k), None)
         return
     with connect() as conn:
-        for k in keys:
-            conn.execute(
-                "insert into alert_log (user_id, alert_key, sent_on) values (%s, %s, %s) on conflict do nothing",
-                (user_id, k, today),
-            )
+        conn.execute("delete from alert_log where user_id = %s and alert_key = any(%s)", (user_id, keys))
+
+
+CRON_LOCK_ID = 727301
+_cron_mem_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def cron_lock():
+    """Yields True when this run holds the (database-wide) cron lock, False when another run does."""
+    if not use_postgres():
+        got = _cron_mem_lock.acquire(blocking=False)
+        try:
+            yield got
+        finally:
+            if got:
+                _cron_mem_lock.release()
+        return
+    migrate()
+    # session-level lock: needs a direct connection, a transaction-mode pooler may unlock on another backend
+    conn = _open(os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"])
+    conn.autocommit = True
+    try:
+        got = conn.execute("select pg_try_advisory_lock(%s)", (CRON_LOCK_ID,)).fetchone()[0]
+        try:
+            yield got
+        finally:
+            if got:
+                conn.execute("select pg_advisory_unlock(%s)", (CRON_LOCK_ID,))
+    finally:
+        conn.close()

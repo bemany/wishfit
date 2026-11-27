@@ -12,4 +12,5 @@ dependencies = [
     "mcp",
     "httpx[http2]",
     "cryptography",
+    "tzdata",
 ]

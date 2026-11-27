@@ -616,7 +616,7 @@ api.put("/me/data", json={"people": people, "profile": None, "base_updated_at": 
 sent_calls, apns_result = [], [(True, None)]
 push.apns_send = lambda token, payload: (sent_calls.append((token, payload)) or apns_result[0])
 prices = {"hario mini mill": 50.0, "tea pot": 20.0}
-priced = lambda session, title: {"price_eur": prices[title.lower()]} if prices.get(title.lower()) is not None else None
+priced = lambda session, title, deadline=None: {"price_eur": prices[title.lower()]} if prices.get(title.lower()) is not None else None
 run = lambda today=None: push.run_daily(priced, lambda: "s", today=today)
 # first run: only snapshots and the birthday (in 3 days, stored with year 1990, recurring) -> one summary
 r = run()
@@ -653,6 +653,32 @@ api.put("/me/data", json={"people": people, "profile": None, "base_updated_at": 
 assert push.occasion_due(people[1], date.today()) is None
 assert push.occasion_due(people[1], date.today() + timedelta(days=5))[1] == 7
 assert push.occasion_due({"occasion": "x", "occasionDate": "garbage"}, date.today()) is None
+# idealo error or timeout: the snapshot stays as it is and nothing counts as "back in stock"
+apns_result[0] = (True, None)
+
+
+def failing(session, title, deadline=None):
+    raise push.PriceUnavailable(title)
+
+
+before = db.get_snapshots(["tea pot", "hario mini mill"])
+n = len(sent_calls)
+assert push.run_daily(failing, lambda: "s", today=tomorrow + timedelta(days=20))["checked"] == 0
+assert db.get_snapshots(["tea pot", "hario mini mill"]) == before and len(sent_calls) == n
+# send phase out of time: the event stays pending (old snapshot kept), the next run delivers it
+prices["hario mini mill"] = 20.0
+r = push.run_daily(priced, lambda: "s", today=tomorrow + timedelta(days=21), send_budget_s=0)
+assert r["alerts_sent"] == 0 and db.get_snapshots(["hario mini mill"])["hario mini mill"]["price_eur"] == 30.0, r
+assert push.run_daily(priced, lambda: "s", today=tomorrow + timedelta(days=22))["alerts_sent"] == 1
+assert db.get_snapshots(["hario mini mill"])["hario mini mill"]["price_eur"] == 20.0
+# a second run while another one holds the cron lock does nothing
+with db.cron_lock() as got:
+    assert got and push.run_daily(priced, lambda: "s") == {"skipped": True}
+# cron without APNs configuration: 503, nothing runs
+for k in ("APNS_KEY", "APNS_KEY_ID", "APNS_TEAM_ID", "APNS_TOPIC"):
+    os.environ.pop(k, None)
+assert api.post("/cron/daily", headers={"Authorization": "Bearer cron-secret"}).status_code == 503
+os.environ.update(APNS_KEY="unused", APNS_KEY_ID="KID123", APNS_TEAM_ID="TEAM123", APNS_TOPIC="app.wishfit.ios")
 # cron with the secret: 200 and counts; no device -> checks nothing for this account
 r = api.post("/cron/daily", headers={"Authorization": "Bearer cron-secret"})
 assert r.status_code == 200 and set(r.json()) == {"checked", "alerts_sent"}, r.text

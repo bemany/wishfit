@@ -1017,6 +1017,7 @@ dependencies = [
     { name = "openai" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]
 
@@ -1029,5 +1030,6 @@ requires-dist = [
     { name = "openai" },
     { name = "psycopg", extras = ["binary"] },
     { name = "python-dotenv" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]

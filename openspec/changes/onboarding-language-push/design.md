@@ -29,3 +29,5 @@
 - Mitgenutzter APNs-Schlüssel: Rotation trifft Solidum-Portal, justap-Push und Wishfit; steht in der Second-Brain-Notiz.
 - Push nur auf echten Geräten testbar (Simulator kann `simctl push` lokal, aber kein echter APNs-Token); Ende-zu-Ende-Test über TestFlight-Build auf Esrefs iPhone.
 - Freundes-Wünsche nur, solange der Freund sein Profil teilt.
+- Gerätetoken-Übernahme (Review PR #32): Wer den APNs-Token eines fremden Geräts kennt, kann ihn mit dem eigenen Konto registrieren; das alte Konto verliert das Gerät. Tokens sind praktisch nicht erratbar und Push-Texte enthalten nur Wunsch-, Pin- und Personennamen des registrierenden Kontos. Akzeptiert für die Testphase.
+- idealo-Ausfall: Fehler lassen Snapshots unverändert, „wieder verfügbar“ entsteht nur aus echten Treffern; Snapshots mit Ereignis werden erst nach Zustellung fortgeschrieben.
