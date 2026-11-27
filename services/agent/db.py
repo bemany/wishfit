@@ -5,6 +5,7 @@ Schema work runs once per process under an advisory lock, so parallel cold start
 
 import itertools
 import os
+import secrets
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,11 @@ RESULTS_USER_ID_CHECK = (
     " and table_name = 'results' and column_name = 'user_id'"
 )
 RESULTS_USER_ID_ALTER = "alter table results add column user_id uuid references users(id) on delete set null"
+SLUG_CHECK = (
+    "select 1 from information_schema.columns where table_schema = current_schema()"
+    " and table_name = 'users' and column_name = 'profile_slug'"
+)
+SLUG_ALTER = "alter table users add column profile_slug text unique"
 
 _migrated = False
 _migrate_lock = threading.Lock()
@@ -45,6 +51,7 @@ _codes: list[dict] = []
 _code_ids = itertools.count(1)
 _sessions: dict[str, dict] = {}
 _data: dict[str, dict] = {}
+_slugs: dict[str, str] = {}  # user id -> profile slug
 
 
 def use_postgres() -> bool:
@@ -76,6 +83,8 @@ def migrate() -> None:
                 conn.execute(stmt)
             if conn.execute(RESULTS_USER_ID_CHECK).fetchone() is None:
                 conn.execute(RESULTS_USER_ID_ALTER)
+            if conn.execute(SLUG_CHECK).fetchone() is None:
+                conn.execute(SLUG_ALTER)
         _migrated = True
 
 
@@ -160,6 +169,7 @@ def delete_user(user_id: str) -> None:
             for k in [k for k, v in _sessions.items() if v["user_id"] == user_id]:
                 del _sessions[k]
             _data.pop(user_id, None)
+            _slugs.pop(user_id, None)
             for rid, (resp, trace, uid) in list(_results.items()):
                 if uid == user_id:
                     _results[rid] = (resp, trace, None)
@@ -326,3 +336,64 @@ def put_data(user_id: str, people: list, profile: dict | None, base: datetime | 
                 (Jsonb(people), Jsonb(profile), t, user_id, base),
             ).fetchone()
         return row[0].isoformat() if row else None
+
+
+# --- public profile slug ---------------------------------------------------
+
+
+def new_slug() -> str:
+    """10 url-safe characters, never starting or ending with - or _."""
+    while True:
+        slug = secrets.token_urlsafe(8)[:10]
+        if slug[0] not in "-_" and slug[-1] not in "-_":
+            return slug
+
+
+def share_profile(user_id: str) -> str:
+    """The user's slug; creates one when there is none. A collision with another user's slug draws a new one."""
+    if not use_postgres():
+        with _mem_lock:
+            if user_id not in _slugs:
+                taken = set(_slugs.values())
+                slug = new_slug()
+                while slug in taken:
+                    slug = new_slug()
+                _slugs[user_id] = slug
+            return _slugs[user_id]
+    import psycopg
+
+    while True:
+        with connect() as conn:
+            row = conn.execute("select profile_slug from users where id = %s", (user_id,)).fetchone()
+            if row is None:
+                raise LookupError("no such user")
+            if row[0]:
+                return row[0]
+            try:
+                with conn.transaction():
+                    got = conn.execute(
+                        "update users set profile_slug = %s where id = %s and profile_slug is null returning profile_slug",
+                        (new_slug(), user_id),
+                    ).fetchone()
+            except psycopg.errors.UniqueViolation:
+                continue  # slug taken by someone else: draw again
+            if got:
+                return got[0]
+
+
+def unshare_profile(user_id: str) -> None:
+    if not use_postgres():
+        with _mem_lock:
+            _slugs.pop(user_id, None)
+        return
+    with connect() as conn:
+        conn.execute("update users set profile_slug = null where id = %s", (user_id,))
+
+
+def profile_owner(slug: str) -> str | None:
+    if not use_postgres():
+        with _mem_lock:
+            return next((uid for uid, s in _slugs.items() if s == slug), None)
+    with connect() as conn:
+        row = conn.execute("select id from users where profile_slug = %s", (slug,)).fetchone()
+        return str(row[0]) if row else None

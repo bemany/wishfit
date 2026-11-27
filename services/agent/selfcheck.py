@@ -428,4 +428,90 @@ tc = api.get(c.json()["trace_url"]).json()
 assert '"must_recommend": true' in tc["model_calls"][1]["input"][1]["content"] and len(tc["model_calls"]) == 3
 assert tc["conversation"]["clarify_streak"] == 0
 print("streak  ok: recommendation forced after two clarifications")
+# profile link: share / unshare, whitelist filtering, import
+import profiles
+
+sent = []  # the mail stub above appends to this list
+_, sh_a = sign_in(f"share-a-{tag}@example.com")
+_, sh_b = sign_in(f"share-b-{tag}@example.com")
+assert api.post("/me/share").status_code == 401 and api.delete("/me/share").status_code == 401
+assert api.get("/profiles/nope").status_code == 404
+share1 = api.post("/me/share", headers=sh_a).json()
+assert api.post("/me/share", headers=sh_a).json() == share1  # same slug again
+assert len(share1["slug"]) == 10 and share1["url"] == f"https://wishfit-web-test.vercel.app/u/{share1['slug']}"
+assert share1["slug"][0] not in "-_" and share1["slug"][-1] not in "-_"
+share_b = api.post("/me/share", headers=sh_b).json()
+assert share_b["slug"] != share1["slug"]
+empty = api.get(f"/profiles/{share1['slug']}")  # shared before any profile was saved
+assert empty.status_code == 200 and empty.json() == {"name": "", "color": None, "wishes": [], "updated_at": None}
+blob = {"name": "  Mia " + "x" * 80, "color": "#ff8800", "email": "mia@example.com", "id": "secret", "people": [{"name": "Tom"}],
+        "wishes": ["Kaffee", {"title": "Lampe", "price_eur": 19.9, "url": "https://shop.example/l", "image_url": "javascript:alert(1)", "note": "x"},
+                   {"title": "T" * 500, "price_eur": "12", "url": "http://a.example/" + "x" * 2000}, {"title": ""}, 42, {"nope": 1}] + ["w"] * 120,
+        "updatedAt": 1}
+r = api.put("/me/data", headers=sh_a, json={"people": [{"name": "Tom"}], "profile": blob, "base_updated_at": None})
+assert r.status_code == 200, r.text
+pub = api.get(f"/profiles/{share1['slug']}")
+assert pub.status_code == 200
+pj = pub.json()
+assert set(pj) == {"name", "color", "wishes", "updated_at"} and pj["updated_at"] == r.json()["updated_at"]
+assert pj["name"] == ("Mia " + "x" * 80)[:60] and pj["color"] == "#ff8800" and len(pj["wishes"]) == 97  # first 100 raw entries, 3 of the 6 odd ones are valid
+assert pj["wishes"][0] == {"title": "Kaffee", "price_eur": None, "url": None, "image_url": None}
+assert pj["wishes"][1] == {"title": "Lampe", "price_eur": 19.9, "url": "https://shop.example/l", "image_url": None}
+assert len(pj["wishes"][2]["title"]) == 200 and pj["wishes"][2]["price_eur"] is None and pj["wishes"][2]["url"] is None
+txt = pub.text
+assert "mia@example.com" not in txt and "secret" not in txt and "Tom" not in txt and "javascript" not in txt and f"share-a-{tag}" not in txt
+assert profiles.public_profile({"name": 5, "color": "<script>", "wishes": "x"}, None) == {"name": "", "color": None, "wishes": [], "updated_at": None}
+assert profiles.public_profile({"color": "red"}, None)["color"] == "red"
+assert api.delete("/me/share", headers=sh_a).status_code == 204
+assert api.get(f"/profiles/{share1['slug']}").status_code == 404
+assert api.get(f"/profiles/{share_b['slug']}").status_code == 200
+assert api.post("/me/share", headers=sh_a).json()["slug"] != share1["slug"]  # old link stays dead
+# slug collision: the first draw is already taken, so a new one is drawn
+draws = iter([share_b["slug"], "freshslug01"])
+real_new_slug = db.new_slug
+db.new_slug = lambda: next(draws)
+_, sh_c = sign_in(f"share-c-{tag}@example.com")
+assert api.post("/me/share", headers=sh_c).json()["slug"] == "freshslug01"
+db.new_slug = real_new_slug
+assert api.delete("/me", headers=sh_b).status_code == 204  # account deletion frees the slug
+assert api.get(f"/profiles/{share_b['slug']}").status_code == 404
+api.delete("/me", headers=sh_a); api.delete("/me", headers=sh_c)
+
+# import: unsupported / empty / failing / ok, language, limit per IP
+real_fetch = amazon.fetch
+imp = lambda url="https://www.amazon.de/hz/wishlist/ls/ABC123", ip="1.1.1.1", **kw: api.post(
+    "/wishlist/import", json={"url": url, **kw}, headers={"x-forwarded-for": f"{ip}, 10.0.0.1"})
+amazon.fetch = lambda url: ([{"title": f"P{i}", "price": "1,00 €", "price_eur": 1.0, "url": f"https://www.amazon.de/dp/B{i:09d}", "image_url": "https://m.media-amazon.com/images/I/x.jpg"} for i in range(60)], 200)
+r = imp()
+assert r.status_code == 200 and r.json()["source"] == "amazon_wishlist" and len(r.json()["items"]) == 50
+assert r.json()["items"][0] == {"title": "P0", "price_eur": 1.0, "url": "https://www.amazon.de/dp/B000000000", "image_url": "https://m.media-amazon.com/images/I/x.jpg"}
+r = imp("https://example.com/list")
+assert r.status_code == 422 and "not supported" in r.json()["detail"]
+assert "nicht unterstützt" in imp("https://example.com/list", language="de").json()["detail"]
+amazon.fetch = lambda url: ([], 200)
+assert imp().status_code == 422
+amazon.fetch = lambda url: ([], 503)
+assert imp().status_code == 502
+def boom(url): raise RuntimeError("down")
+amazon.fetch = boom
+assert imp().status_code == 502
+amazon.fetch = lambda url: ([], 400)  # host check refused it
+assert imp("https://www.amazon.evil.com/hz/wishlist/ls/ABC123").status_code == 422
+assert imp(ip="2.2.2.2").status_code == 422  # 1.1.1.1 used 7 of 10 so far; other IPs have their own count
+assert [imp().status_code for _ in range(4)] == [422, 422, 422, 429]
+assert imp(ip="3.3.3.3").status_code != 429
+amazon.fetch = real_fetch
+assert amazon.parse_price("83,92\xa0€") == 83.92 and amazon.parse_price("1.299,00 €") == 1299.0 and amazon.parse_price("$12.50") == 12.5 and amazon.parse_price(None) is None
+page = ('<div><img alt="x" src="https://m.media-amazon.com/images/I/a._SS135_.jpg"/><a id="itemName_AAA" class="x" title="Lampe &amp; Co" href="/dp/B0CR45D9F7/?coliid=1">'
+        '<span id="itemPrice_AAA" class="a-price"><span class="a-offscreen">1.299,00\xa0€</span></span></div>'
+        '<a id="itemName_BBB" title="Ohne" href="/foo">')
+class _R:
+    status_code = 200; is_redirect = False; text = page
+amazon.httpx.get = lambda *a, **k: _R()
+got, st = amazon.fetch("https://www.amazon.de/hz/wishlist/ls/ABC123")
+assert st == 200 and got[0] == {"title": "Lampe & Co", "price": "1.299,00\xa0€", "price_eur": 1299.0, "url": "https://www.amazon.de/dp/B0CR45D9F7",
+                                "image_url": "https://m.media-amazon.com/images/I/a._SS135_.jpg"}
+assert got[1]["price_eur"] is None and got[1]["url"] is None and got[1]["image_url"] is None
+print("profile ok: share/unshare, filtering, import")
+
 print("ALL CHECKS PASSED")

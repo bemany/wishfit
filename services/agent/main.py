@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 import amazon
 import auth
 import idealo
+import profiles
 import storage
 
 HERE = Path(__file__).parent
@@ -30,6 +31,7 @@ load_dotenv(HERE / ".env")
 app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth.router)
+app.include_router(profiles.router)
 
 
 @app.middleware("http")
