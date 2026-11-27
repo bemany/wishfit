@@ -1,0 +1,91 @@
+"""Self-check: both demo requests through the app with the Nebius client stubbed.
+
+Run: uv run python selfcheck.py
+"""
+
+import json
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+import main
+
+EXAMPLES = Path(__file__).parent / "examples"
+os.environ.pop("DATABASE_URL", None)  # always in-memory here
+os.environ["NEBIUS_MODEL"] = "stub-model"
+
+
+def example(name: str) -> dict:
+    return json.loads((EXAMPLES / name).read_text())
+
+
+def stub(*outputs: str):
+    """Fake OpenAI client that returns the given raw outputs in order."""
+    queue = list(outputs)
+
+    def create(**kwargs):
+        assert kwargs["model"] == "stub-model" and kwargs["messages"][0]["role"] == "system"
+        usage = SimpleNamespace(prompt_tokens=11, completion_tokens=7)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=queue.pop(0)))], usage=usage)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    main.nebius_client = lambda: client
+
+
+def decision(sample: str) -> dict:
+    return {k: example(sample)[k] for k in ("status", "top", "alternatives", "uncertainty")}
+
+
+api = TestClient(main.app)
+
+# missing key: clean 502, no crash (real nebius_client, before it gets stubbed)
+os.environ["NEBIUS_API_KEY"] = ""
+r = api.post("/recommend", json=example("simple.request.json"))
+assert r.status_code == 502 and r.json() == {"detail": "NEBIUS_API_KEY is not configured"}
+
+assert api.get("/health").json() == {"ok": True}
+
+# simple case: model's total_eur is wrong on purpose, the code must recompute it
+simple = decision("sample.response.json")
+simple["top"]["total_eur"] = 999
+stub(json.dumps(simple))
+r = api.post("/recommend", json=example("simple.request.json"))
+assert r.status_code == 200, r.text
+body = main.RecommendResponse.model_validate(r.json())
+assert body.status == "recommendation" and body.top.total_eur == 44.98 and body.top.signals
+assert body.model == "stub-model" and body.trace_url == f"/trace/{body.id}"
+assert api.get(f"/results/{body.id}").json() == r.json()
+trace = api.get(body.trace_url).json()
+assert len(trace["model_calls"]) == 1 and trace["model_calls"][0]["model"] == "stub-model"
+assert "PowerCore" in trace["model_calls"][0]["input"][1]["content"]  # idealo data reached the model
+assert trace["model_calls"][0]["usage"] == {"prompt_tokens": 11, "completion_tokens": 7}
+assert trace["idealo_calls"] and all(c["source"] == "snapshot" for c in trace["idealo_calls"])
+print("simple  ok:", body.status, body.top.product_name, body.top.total_eur)
+
+# chaotic case: first output is not JSON -> one retry, both calls in the trace
+stub("Sure! Here is my answer", json.dumps(decision("sample.clarification.response.json")))
+r = api.post("/recommend", json=example("chaotic.request.json"))
+assert r.status_code == 200, r.text
+body = main.RecommendResponse.model_validate(r.json())
+assert body.status == "needs_clarification" and body.top is None
+assert body.uncertainty.reasons and body.uncertainty.question
+trace = api.get(body.trace_url).json()
+assert len(trace["model_calls"]) == 2 and len(trace["idealo_calls"]) == 2
+print("chaotic ok:", body.status, "-", body.uncertainty.question)
+
+# failure paths: all must be a clean {"detail": str}
+stub("nope", "still nope")
+r = api.post("/recommend", json=example("simple.request.json"))
+assert r.status_code == 502 and r.json() == {"detail": "model returned invalid JSON twice"}
+
+live = example("simple.request.json") | {"demo_case": None}
+r = api.post("/recommend", json=live)
+assert r.status_code == 502 and r.json() == {"detail": "idealo MCP not configured yet"}
+
+r = api.post("/recommend", json={"wishes": [], "budget_eur": 10, "occasion": "x"})
+assert r.status_code == 422 and isinstance(r.json()["detail"], str)
+assert api.get("/results/r_missing").status_code == 404 and api.get("/trace/r_missing").status_code == 404
+print("errors  ok: 502 missing key, 502 invalid JSON twice, 502 idealo MCP missing, 422, 404")
+print("ALL CHECKS PASSED")
