@@ -146,6 +146,8 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
   const [devCode, setDevCode] = useState<string | null>(null);
   const [notStored, setNotStored] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  // counts the user's language choices, see the app start below
+  const langPicks = useRef(0);
   const [tombs, setTombsState] = useState<Tomb[]>(loadTombs);
 
   const tombsRef = useRef(tombs);
@@ -285,9 +287,11 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     if (!start) return;
     // signed in by an older version, which did not note the owner yet
     if (!readSettings().owner) writeSettings({ owner: start.email });
+    // a choice the user makes while the answer is on its way wins
+    const picked = langPicks.current;
     call<{ language?: string | null }>('GET', '/me')
       .then((r) => {
-        if (getSession() && isLang(r?.language) && r.language !== getLanguage()) adopt.current(r.language);
+        if (getSession() && langPicks.current === picked && isLang(r?.language) && r.language !== getLanguage()) adopt.current(r.language);
       })
       .catch(() => {});
     sync(true);
@@ -350,6 +354,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     sync(true);
   };
   const saveLanguage = (lang: Lang) => {
+    langPicks.current += 1;
     if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
   const signOut = async (force = false) => {
