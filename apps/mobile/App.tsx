@@ -8,7 +8,8 @@ import { InstrumentSans_700Bold } from '@expo-google-fonts/instrument-sans/700Bo
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Linking, PanResponder, Platform, View } from 'react-native';
+import { AccessibilityInfo, Dimensions, Linking, PanResponder, Platform, View } from 'react-native';
+import Reanimated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, type SharedValue } from 'react-native-reanimated';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAccount } from './src/account';
@@ -38,21 +39,27 @@ export default function App() {
 
 const WIDTH = Dimensions.get('window').width;
 
+// How a screen enters and leaves: slide = iOS push (the screen below drifts back 30 % and darkens),
+// zoom = grows out of the top-right "+" button, fade = reduced motion
+type Kind = 'slide' | 'zoom' | 'fade';
+// critically damped (damping = 2 * sqrt(stiffness * mass)), so it settles without any overshoot
+const SPRING = { stiffness: 260, damping: 2 * Math.sqrt(260), mass: 1, overshootClamping: true } as const;
+
 // Swipe from the left edge to the right = the screen's back button. The screen follows the finger and
 // slides out, or springs back when released early.
-// ponytail: a 22pt edge strip with PanResponder and Animated, no navigation library, so the white ground shows underneath
-function EdgeBack({ x, onBack }: { x: Animated.Value; onBack: () => void }) {
-  const back = useRef(onBack);
-  back.current = onBack;
+// ponytail: a 22pt edge strip with PanResponder writing the shared value p (1 = screen in place, 0 = gone)
+function EdgeBack({ p, onStart, onRelease }: { p: SharedValue<number>; onStart: () => void; onRelease: (done: boolean, velocity: number) => void }) {
+  const cb = useRef({ onStart, onRelease });
+  cb.current = { onStart, onRelease };
   const pan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) => g.dx > 12 && Math.abs(g.dy) < 18,
-      onPanResponderMove: (_e, g) => x.setValue(Math.max(0, g.dx)),
-      onPanResponderRelease: (_e, g) => {
-        if (g.dx > WIDTH / 3 || g.vx > 0.6) back.current();
-        else Animated.spring(x, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
+      onPanResponderGrant: () => cb.current.onStart(),
+      onPanResponderMove: (_e, g) => {
+        p.value = 1 - Math.min(1, Math.max(0, g.dx / WIDTH));
       },
-      onPanResponderTerminate: () => Animated.spring(x, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(),
+      onPanResponderRelease: (_e, g) => cb.current.onRelease(g.dx > WIDTH / 3 || g.vx > 0.6, g.vx),
+      onPanResponderTerminate: () => cb.current.onRelease(false, 0),
     }),
   ).current;
   return <View {...pan.panHandlers} accessible={false} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 22 }} />;
@@ -62,7 +69,7 @@ function Root() {
   const insets = useSafeAreaInsets();
   const [people, setPeople] = useState<Person[]>(loadPeople);
   const [me, setMe] = useState<Me>(loadMe);
-  const [view, setView] = useState<View_>({ name: 'people' });
+  const [view, setViewRaw] = useState<View_>({ name: 'people' });
   // every screen reads its texts through t(), so a new language re-renders them from here
   const [lang, setLang] = useState<Lang>(getLanguage);
   const [onboarded, setOnboarded] = useState(() => readSettings().onboarded === true);
@@ -216,51 +223,95 @@ function Root() {
     [],
   );
 
-  const person = 'id' in view ? (people.find((p) => p.id === view.id) ?? null) : null;
-  // Screen transitions: forward slides in from the right, back slides out to the right (button and swipe alike)
-  const x = useRef(new Animated.Value(0)).current;
-  const leaving = useRef(false);
-  const viewKey = view.name + ('id' in view ? (view.id ?? '') : '');
+  // Screen transitions. p: 1 = the top screen is in place, 0 = it is gone. `under` is the screen shown below it
+  // while it moves (forward: where we came from; back: where we go). Without a transition it is null.
+  const p = useSharedValue(1);
+  const kindSV = useSharedValue<Kind>('slide');
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const [tr, setTr] = useState<{ under: View_; n: number; dir: 'in' | 'out' | 'drag' } | null>(null);
+  const trN = useRef(0);
+  const [reduce, setReduce] = useState(false);
   useEffect(() => {
-    if (leaving.current) {
-      leaving.current = false;
-      return;
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduce).catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
+    return () => sub.remove();
+  }, []);
+  const keyOf = (v: View_) => v.name + ('id' in v ? (v.id ?? '') : '');
+  const kindFor = (v: View_, zoom?: boolean): Kind => (reduce ? 'fade' : zoom ? 'zoom' : 'slide');
+  // forward: the new screen comes in over the current one
+  const setView = (next: View_, zoom = false) => {
+    if (!onboarded || keyOf(next) === keyOf(viewRef.current)) return setViewRaw(next);
+    kindSV.value = kindFor(next, zoom);
+    p.value = 0;
+    setTr({ under: viewRef.current, n: ++trN.current, dir: 'in' });
+    setViewRaw(next);
+  };
+  const done = (n: number, to?: View_) => {
+    if (trN.current !== n) return;
+    if (to) setViewRaw(to);
+    p.value = 1;
+    setTr(null);
+  };
+  // back: the current screen leaves, the target is shown below it and then becomes the screen
+  const pop = (target: View_) => {
+    if (!onboarded) return setViewRaw(target);
+    kindSV.value = kindFor(target, viewRef.current.name === 'add');
+    setTr({ under: target, n: ++trN.current, dir: 'out' });
+  };
+  const swipeTarget = useRef<View_>({ name: 'people' });
+  const popTarget = (): View_ => {
+    const v = viewRef.current;
+    return (v.name === 'edit' || v.name === 'snap' || v.name === 'detail') && v.id ? { name: 'thread', id: v.id } : { name: 'people' };
+  };
+  // start the spring once the screens are mounted
+  useEffect(() => {
+    if (!tr || tr.dir === 'drag') return;
+    const n = tr.n;
+    if (tr.dir === 'in') {
+      p.value = withSpring(1, SPRING, (finished) => finished && runOnJS(done)(n));
+    } else {
+      const target = tr.under;
+      p.value = withSpring(0, SPRING, (finished) => finished && runOnJS(done)(n, target));
     }
-    if (view.name === 'people') return;
-    x.setValue(WIDTH);
-    Animated.timing(x, { toValue: 0, duration: 220, useNativeDriver: true }).start();
-  }, [viewKey]);
+  }, [tr?.n, tr?.dir]);
+  const topStyle = useAnimatedStyle(() => {
+    const k = kindSV.value;
+    if (k === 'fade') return { opacity: p.value, transform: [{ translateX: 0 }, { scale: 1 }] };
+    if (k === 'zoom') return { opacity: Math.min(1, p.value * 1.6), transform: [{ translateX: 0 }, { scale: 0.9 + 0.1 * p.value }] };
+    return { opacity: 1, transform: [{ translateX: (1 - p.value) * WIDTH }, { scale: 1 }] };
+  });
+  const underStyle = useAnimatedStyle(() => ({ transform: [{ translateX: kindSV.value === 'slide' ? -0.3 * WIDTH * p.value : 0 }] }));
+  const dimStyle = useAnimatedStyle(() => ({ opacity: (kindSV.value === 'slide' ? 0.1 : kindSV.value === 'zoom' ? 0.06 : 0) * p.value }));
   const goBack = () => {
-    const target: View_ =
-      (view.name === 'edit' || view.name === 'snap') && view.id ? { name: 'thread', id: view.id } : view.name === 'detail' && view.id ? { name: 'thread', id: view.id } : { name: 'people' };
     // the web address of a shared tag goes away with it, so a reload lands on the tags
     if (view.name === 'profile' && Platform.OS === 'web') window.history.replaceState(null, '', '/');
-    Animated.timing(x, { toValue: WIDTH, duration: 200, useNativeDriver: true }).start(() => {
-      leaving.current = true;
-      setView(target);
-      x.setValue(0);
-    });
+    pop(popTarget());
+  };
+  const swipe = {
+    onStart: () => {
+      kindSV.value = kindFor(popTarget(), viewRef.current.name === 'add');
+      swipeTarget.current = popTarget();
+      setTr({ under: swipeTarget.current, n: ++trN.current, dir: 'drag' });
+    },
+    onRelease: (go: boolean, vx: number) => {
+      const n = trN.current;
+      if (go) {
+        if (viewRef.current.name === 'profile' && Platform.OS === 'web') window.history.replaceState(null, '', '/');
+        const target = swipeTarget.current;
+        p.value = withSpring(0, { ...SPRING, velocity: -vx * 1000 / WIDTH }, (finished) => finished && runOnJS(done)(n, target));
+      } else p.value = withSpring(1, SPRING, (finished) => finished && runOnJS(done)(n));
+    },
   };
 
-  return (
-    <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
-      <StatusBar style="dark" />
-      <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
-      {!onboarded ? (
-        <Onboarding
-          lang={lang}
-          signedIn={!!account.session}
-          onLanguage={changeLanguage}
-          onDone={() => {
-            writeSettings({ onboarded: true });
-            setOnboarded(true);
-          }}
-        />
-      ) : view.name === 'profile' ? (
-        <ProfileView key={view.slug} slug={view.slug} people={people} mine={me.share?.slug === view.slug} onBack={goBack} onAdd={(profile) => addFriend(view.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
-      ) : view.name === 'add' ? (
+  const renderScreen = (v: View_) => {
+    const person = 'id' in v ? (people.find((x) => x.id === v.id) ?? null) : null;
+    return (
+      v.name === 'profile' ? (
+        <ProfileView key={v.slug} slug={v.slug} people={people} mine={me.share?.slug === v.slug} onBack={goBack} onAdd={(profile) => addFriend(v.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
+      ) : v.name === 'add' ? (
         <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
-      ) : view.name === 'me' ? (
+      ) : v.name === 'me' ? (
         <MeScreen
           me={me}
           account={account}
@@ -269,7 +320,7 @@ function Root() {
           onBack={goBack}
           onChange={changeMe}
         />
-      ) : view.name === 'edit' && person ? (
+      ) : v.name === 'edit' && person ? (
         <AddPerson
           key={`edit-${person.id}`}
           initial={person}
@@ -278,14 +329,14 @@ function Root() {
           onPin={(item, resultId) => pin(person.id, item, resultId)}
           onDone={(fields) => {
             update(person.id, (p) => ({ ...p, ...fields }));
-            setView({ name: 'thread', id: person.id });
+            pop({ name: 'thread', id: person.id });
           }}
           onDelete={() => {
             account.removePerson(person.id);
-            setView({ name: 'people' });
+            pop({ name: 'people' });
           }}
         />
-      ) : view.name === 'thread' && person ? (
+      ) : v.name === 'thread' && person ? (
         <Thread
           key={person.id}
           person={person}
@@ -299,7 +350,7 @@ function Root() {
           onOpen={(result) => setView({ name: 'detail', result, id: person.id })}
           onEdit={() => setView({ name: 'edit', id: person.id })}
         />
-      ) : view.name === 'snap' ? (
+      ) : v.name === 'snap' ? (
         <Snap
           person={person}
           people={people}
@@ -311,19 +362,52 @@ function Root() {
             send(to, t('whatAbout'), photo);
           }}
         />
-      ) : view.name === 'detail' ? (
+      ) : v.name === 'detail' ? (
         <Detail
           // A deep-linked result belongs to whoever has it in their thread, if anyone
-          person={person ?? people.find((p) => p.messages.some((m) => m.role === 'agent' && m.result.id === view.result.id)) ?? null}
-          result={view.result}
+          person={person ?? people.find((p) => p.messages.some((m) => m.role === 'agent' && m.result.id === v.result.id)) ?? null}
+          result={v.result}
           onBack={goBack}
           onPin={person ? (item, resultId) => pin(person.id, item, resultId) : undefined}
         />
       ) : (
-        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} onSnap={() => setView({ name: 'snap', id: null })} />
+        <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' }, true)} onMe={() => setView({ name: 'me' })} onSnap={() => setView({ name: 'snap', id: null })} />
+      )
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
+      <StatusBar style="dark" />
+      {!onboarded ? (
+        <Onboarding
+          lang={lang}
+          signedIn={!!account.session}
+          onLanguage={changeLanguage}
+          onDone={() => {
+            writeSettings({ onboarded: true });
+            setOnboarded(true);
+          }}
+        />
+      ) : (
+        <View style={{ flex: 1 }}>
+          {tr && (
+            <>
+              <Reanimated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }, underStyle]}>
+                {renderScreen(tr.under)}
+              </Reanimated.View>
+              <Reanimated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#000' }, dimStyle]} />
+            </>
+          )}
+          <Reanimated.View
+            pointerEvents={tr ? 'none' : 'auto'}
+            style={[{ flex: 1, backgroundColor: C.paper, shadowColor: '#000', shadowOpacity: tr ? 0.15 : 0, shadowRadius: 10, shadowOffset: { width: -3, height: 0 } }, topStyle]}
+          >
+            {renderScreen(view)}
+          </Reanimated.View>
+          {view.name !== 'people' && <EdgeBack p={p} onStart={swipe.onStart} onRelease={swipe.onRelease} />}
+        </View>
       )}
-      </Animated.View>
-      {onboarded && view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
     </View>
   );
 }
