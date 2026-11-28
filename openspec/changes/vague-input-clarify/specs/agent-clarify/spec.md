@@ -14,3 +14,11 @@ Der Agent SHALL bei einer ersten Nachricht ohne verwertbare Hinweise auf die Per
 #### Scenario: Genug Kontext
 - **WHEN** die Nachricht konkrete Interessen enthält (z. B. „wandert gern, trinkt Tee“)
 - **THEN** empfiehlt der Agent direkt ohne Rückfrage
+
+#### Scenario: Obergrenze
+- **WHEN** die vage Rückfrage gestellt wurde
+- **THEN** zählt sie in `clarify_streak`; insgesamt gibt es höchstens zwei Rückfragen in Folge, danach muss empfohlen werden
+
+#### Scenario: Kontext zählt als Information
+- **WHEN** der Text die App-Historie („Nachtrag:“), angehängten Kontext (Wunschliste eines Freundes) enthält oder `demo_case` gesetzt ist
+- **THEN** stellt der Agent keine vage Rückfrage

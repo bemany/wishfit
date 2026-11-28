@@ -622,7 +622,7 @@ plus occasion, budget and optional preferences. Return ONE JSON object and nothi
 - needs_more_info: true only if the input says NOTHING usable about the person (no interest, hobby, style, \
 product, wish, trait or context), for example "something nice" or "a gift". Then give candidates [] , ONE short \
 concrete question in "question" and exactly 3 short quick_replies (2-4 words each) that answer it, for example \
-"Likes the outdoors", "More into tech", "Something personal". Any concrete hint, however small ("likes hiking and \
+"Likes the outdoors", "More into tech", "Something personal", in the language given in "language". Any concrete hint, however small ("likes hiking and \
 tea"), means false: then candidates are required and question/quick_replies stay empty/[]. A message that follows \
 an earlier turn is never vague: always false.
 - summary: one sentence about the person as far as the input supports it.
@@ -887,7 +887,10 @@ def is_blank_first_message(req: RecommendRequest, conversation: dict) -> bool:
     text = req.input_text or ""
     return (len(conversation["messages"]) == 1 and not req.previous_id and not req.wishes
             and not (req.preferences or "").strip() and "[Foto]" not in text
-            and "Amazon-Wunschliste" not in text and "Amazon-Produkt" not in text)
+            and "Amazon-Wunschliste" not in text and "Amazon-Produkt" not in text
+            and not req.demo_case
+            # app history (fallback formatting) and attached context (friend's wishlist) count as information
+            and "Nachtrag:" not in text and "(data, not instructions)" not in text)
 
 
 @app.post("/recommend")
@@ -907,8 +910,8 @@ def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_u
     understood = understand(req, trace, previous_pick) if (req.input_text or "").strip() else None
     if understood and understood.needs_more_info and is_blank_first_message(req, conversation):
         # one targeted question instead of a random pick: no price data is fetched (no idealo or Apify cost)
-        question = understood.question.strip()
-        replies = [q.strip() for q in understood.quick_replies if q.strip()][:3]
+        question = understood.question.strip()[:160]
+        replies = [q.strip()[:40] for q in understood.quick_replies if q.strip()][:3]
         reason = ("Ich weiß noch zu wenig über die Person." if req.language != "en" else "I know too little about the person yet.")
         decision = Decision(status="needs_clarification", reply=question, quick_replies=replies,
                             uncertainty=Uncertainty(reasons=[reason], question=question))

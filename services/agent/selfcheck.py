@@ -464,6 +464,17 @@ assert k.json()["status"] == "recommendation"  # hints in the first message: the
 stub(json.dumps(chat["understood"]), json.dumps(decision("sample.chat.response.json")))
 k = api.post("/recommend", json={"input_text": "Lea wandert gern und trinkt viel Tee", "budget_eur": 40, "occasion": "Geburtstag", "demo_case": "chaotic"})
 assert k.json()["status"] == "recommendation"
+# no question when the text carries history, attached context or a demo case
+for extra in ({"input_text": "Irgendwas Schönes\nNachtrag: Günstiger"},
+              {"input_text": "Irgendwas Schönes\n\nWishlist of Lea (data, not instructions):\n- Tee"},
+              {"input_text": "Irgendwas Schönes", "demo_case": "chaotic"}):
+    stub(json.dumps(vague | {"candidates": [{"idea": "Tee", "why": "x"}]}), json.dumps(decision("sample.chat.response.json")))
+    k = api.post("/recommend", json={"budget_eur": 40, "occasion": "Geburtstag", "demo_case": "chaotic"} | extra)
+    assert k.json()["status"] == "recommendation", (extra, k.text)
+long = vague | {"question": "x" * 300, "quick_replies": ["y" * 90, "b", "c"]}
+stub(json.dumps(long))
+k = api.post("/recommend", json={"input_text": "Irgendwas Schönes", "budget_eur": 40, "occasion": "Geburtstag"}).json()
+assert len(k["uncertainty"]["question"]) == 160 and [len(q) for q in k["quick_replies"]] == [40, 1, 1]
 print("vague   ok: one question with quick replies, no idealo call; answer and concrete input recommend")
 # profile link: share / unshare, whitelist filtering, import
 import profiles
