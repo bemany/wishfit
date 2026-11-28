@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
+import { t, type Lang } from './i18n';
 import { C, F } from './theme';
 
 const ICONS = {
@@ -30,7 +31,7 @@ export function Bubble({ children, note }: { children: string; note?: string }) 
       <Text style={[s.body, { color: '#fff' }]} numberOfLines={note && open ? undefined : 3}>
         {children}
       </Text>
-      {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{open ? 'Tap to collapse' : `${note} · tap to expand`}</Mono>}
+      {note && <Mono style={{ color: '#fff', opacity: 0.7 }}>{open ? t('tapCollapse') : t('tapExpand', { note })}</Mono>}
     </Pressable>
   );
 }
@@ -74,6 +75,17 @@ export const Btn = ({ label, onPress, secondary, disabled }: { label: string; on
   </Pressable>
 );
 
+// Deutsch / English, the chosen one filled
+export const LanguagePicker = ({ value, onChange }: { value: Lang; onChange: (lang: Lang) => void }) => (
+  <View style={{ flexDirection: 'row', gap: 8 }}>
+    {(['de', 'en'] as const).map((l) => (
+      <View key={l} style={{ flex: 1 }}>
+        <Btn label={l === 'de' ? 'Deutsch' : 'English'} secondary={l !== value} onPress={() => onChange(l)} />
+      </View>
+    ))}
+  </View>
+);
+
 export const Round = ({ icon, label, onPress, ink, size = 44, fill }: { icon: keyof typeof ICONS; label: string; onPress: () => void; ink?: boolean; size?: number; fill?: string }) => (
   <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[s.round, { width: size, height: size }, ink && { backgroundColor: C.ink }, fill != null && { backgroundColor: fill }]}>
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -84,7 +96,7 @@ export const Round = ({ icon, label, onPress, ink, size = 44, fill }: { icon: ke
 
 export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; title?: string; left?: ReactNode; right?: ReactNode }) => (
   <View style={s.top}>
-    {onBack ? <Round icon="back" label="Back" onPress={onBack} /> : left}
+    {onBack ? <Round icon="back" label={t('back')} onPress={onBack} /> : left}
     {title && (
       <Mono numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>
         {title}

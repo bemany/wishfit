@@ -1,4 +1,5 @@
 import type { Permission, SpeechModule } from '../modules/speech';
+import { t } from './i18n';
 
 // Thin layer over the native dictation module, adapted from justap.
 // Loaded lazily: a build without the native part still runs, it just shows no microphone.
@@ -16,7 +17,6 @@ export const askMicPermission = (): Promise<Permission> => (native ? native.requ
 
 // A start normally returns within a fraction of a second; one that hangs (microphone taken by another app) is an error
 const START_LIMIT = 5000;
-export const MIC_BUSY = 'The microphone is not available right now, another app may be using it.';
 
 // One dictation session. `onText` gets every interim text of the whole recording so the field follows along.
 // `onEnd` is called with a message when recognition breaks off or cannot start, and with null after a normal stop.
@@ -39,7 +39,7 @@ export async function dictate(onText: (text: string) => void, onEnd: (error: str
   try {
     outcome = await Promise.race([started.then(() => 'ok' as const), new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), START_LIMIT))]);
   } catch (e) {
-    return fail(e instanceof Error ? e.message : 'Dictation did not start.');
+    return fail(e instanceof Error ? e.message : t('micNoStart'));
   }
   if (outcome === 'timeout') {
     // if the start still comes back later, end that recording right away: nobody is listening any more
@@ -47,7 +47,7 @@ export async function dictate(onText: (text: string) => void, onEnd: (error: str
       () => void native.stop().catch(() => {}),
       () => {},
     );
-    return fail(MIC_BUSY);
+    return fail(t('micBusy'));
   }
   return {
     stop: async () => {

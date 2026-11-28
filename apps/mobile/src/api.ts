@@ -1,14 +1,6 @@
+import { getLanguage, isLang, t, type Lang } from './i18n';
 import { deleteSecret, readJson, readSecret, writeJson, writeSecret } from './storage';
 import { TAG_COLORS } from './theme';
-
-// 'de' when the first preferred language is German, else 'en'
-export const deviceLanguage = () => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('de') ? 'de' : 'en';
-  } catch {
-    return 'en';
-  }
-};
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -47,6 +39,8 @@ export type Person = {
   id: string;
   name: string;
   occasion: string;
+  // YYYY-MM-DD; a birthday repeats every year (the daily check reminds 7 days before)
+  occasionDate?: string;
   budget: number;
   color: string;
   messages: Msg[];
@@ -89,7 +83,7 @@ export const togglePin = (p: Person, item: Product, resultId: string): Person =>
 
 // What the agent says for a turn; older backends send no `reply`
 export const sayOf = (r: Result) =>
-  r.reply || (r.status === 'recommendation' ? r.top?.reason : r.uncertainty?.question) || r.top?.reason || 'I could not find anything yet. Tell me a bit more.';
+  r.reply || (r.status === 'recommendation' ? r.top?.reason : r.uncertainty?.question) || r.top?.reason || t('nothingFound');
 
 export const lastResult = (p: Person) => {
   for (let i = p.messages.length - 1; i >= 0; i--) {
@@ -155,12 +149,12 @@ export async function call<T = unknown>(method: string, path: string, body?: unk
   try {
     res = await fetch(API_URL + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
-    throw new ApiError(`I can't reach the server (${API_URL}).`, 0);
+    throw new ApiError(t('noServer', { url: API_URL }), 0);
   }
   if (res.status === 401 && token) onSessionLost();
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    const err = new ApiError(typeof data?.detail === 'string' ? data.detail : `The server answered with error ${res.status}.`, res.status);
+    const err = new ApiError(typeof data?.detail === 'string' ? data.detail : t('serverError', { status: res.status }), res.status);
     (err as ApiError & { data?: unknown }).data = data;
     throw err;
   }
@@ -175,8 +169,8 @@ export const loadResult = (id: string) => request(`/results/${encodeURIComponent
 // image: a photo of a product as base64; the server names the product and carries on with that as text
 // context: data that goes with the first message only (a friend's shared wishes); the server keeps it in the history after that
 export async function recommend(p: Person, text: string, image?: string, context?: string | null): Promise<Result> {
-  const base = { language: deviceLanguage(), recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
-  const withContext = (t: string) => (context ? `${t}\n\n${context}` : t);
+  const base = { language: getLanguage(), recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
+  const withContext = (msg: string) => (context ? `${msg}\n\n${context}` : msg);
   if (!p.lastResultId) return request('/recommend', { ...base, input_text: withContext(text) });
   try {
     return await request('/recommend', { ...base, input_text: text, previous_id: p.lastResultId });
@@ -203,6 +197,8 @@ export const uniqueColors = (people: Person[]): Person[] => {
 };
 export const friendFields = (p: any): Pick<Person, 'friendSlug' | 'wishes'> =>
   typeof p?.friendSlug === 'string' && p.friendSlug ? { friendSlug: p.friendSlug, wishes: toWishes(p.wishes) } : {};
+export const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+export const dateField = (p: any): Pick<Person, 'occasionDate'> => (isDate(p?.occasionDate) ? { occasionDate: p.occasionDate } : {});
 export const loadPeople = (): Person[] => {
   try {
     const raw = (readJson('people') as any[] | null) ?? [];
@@ -217,6 +213,7 @@ export const loadPeople = (): Person[] => {
       lastResultId: p.lastResultId ?? null,
       pins: Array.isArray(p.pins) ? p.pins : [],
       ...friendFields(p),
+      ...dateField(p),
       updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
     }));
     const fixed = uniqueColors(people);
@@ -286,8 +283,8 @@ export const newerPrices = (wishes: Wish[], other: Wish[]): Wish[] =>
   });
 
 // My own tag and wishlist. Local to this phone like the people, in a second file
-// share: my public profile link while it is shared
-export type Me = { name: string; color: string; wishes: Wish[]; share?: { slug: string; url: string } | null; updatedAt?: number };
+// share: my public profile link while it is shared; language: the one last picked under Me, synced with the profile
+export type Me = { name: string; color: string; wishes: Wish[]; share?: { slug: string; url: string } | null; language?: Lang; updatedAt?: number };
 export const toShare = (v: any) => (v && typeof v === 'object' && typeof v.slug === 'string' && typeof v.url === 'string' ? { slug: v.slug, url: v.url } : null);
 export const loadMe = (): Me => {
   const empty: Me = { name: '', color: TAG_COLORS[1], wishes: [] };
@@ -299,6 +296,7 @@ export const loadMe = (): Me => {
       color: typeof raw.color === 'string' ? raw.color : empty.color,
       wishes: toWishes(raw.wishes),
       share: toShare(raw.share),
+      ...(isLang(raw.language) ? { language: raw.language } : {}),
       updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : undefined,
     };
   } catch {

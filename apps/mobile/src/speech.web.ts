@@ -11,6 +11,8 @@ type Recognition = {
 };
 type RecognitionCtor = new () => Recognition;
 
+import { t, type Key } from './i18n';
+
 const Ctor = (): RecognitionCtor | null => {
   const w = typeof window !== 'undefined' ? (window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor }) : null;
   return w?.SpeechRecognition ?? w?.webkitSpeechRecognition ?? null;
@@ -20,13 +22,11 @@ export const speechAvailable = () => Ctor() !== null;
 // The browser asks for the microphone itself when recognition starts
 export const askMicPermission = async () => 'granted' as const;
 
-export const MIC_BUSY = 'The microphone is not available right now, another app may be using it.';
-
-const MESSAGES: Record<string, string> = {
-  'not-allowed': 'Dictation needs microphone access. Allow it in the browser and try again.',
-  'service-not-allowed': 'Dictation needs microphone access. Allow it in the browser and try again.',
-  'audio-capture': MIC_BUSY,
-  network: 'Dictation needs a connection in this browser.',
+const MESSAGES: Record<string, Key> = {
+  'not-allowed': 'micBrowser',
+  'service-not-allowed': 'micBrowser',
+  'audio-capture': 'micBusy',
+  network: 'micOffline',
 };
 
 export async function dictate(onText: (text: string) => void, onEnd: (error: string | null) => void, locale: string) {
@@ -48,7 +48,7 @@ export async function dictate(onText: (text: string) => void, onEnd: (error: str
   rec.onerror = (e) => {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
     failed = true;
-    onEnd(MESSAGES[e.error] ?? 'Dictation stopped unexpectedly.');
+    onEnd(t(MESSAGES[e.error] ?? 'micStopped'));
   };
   rec.onend = () => {
     if (!stopped && !failed) onEnd(null);
@@ -56,7 +56,7 @@ export async function dictate(onText: (text: string) => void, onEnd: (error: str
   try {
     rec.start();
   } catch (e) {
-    onEnd(e instanceof Error ? e.message : 'Dictation did not start.');
+    onEnd(e instanceof Error ? e.message : t('micNoStart'));
     return null;
   }
   return {

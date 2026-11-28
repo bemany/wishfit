@@ -1,9 +1,9 @@
 ## 1. App: Sprache und Onboarding (Paket G, nach Paket F)
 
-- [ ] 1.1 `src/i18n.ts` (en/de) und alle sichtbaren Texte umstellen
-- [ ] 1.2 Onboarding-Screen: Sprache, Einstieg, Mitteilungen
-- [ ] 1.3 Sprachwechsel im Profil, `language` an `/recommend` und `PUT /me/settings`
-- [ ] 1.4 `occasionDate` an der Person (optional, Eingabe beim Anlegen/Bearbeiten)
+- [x] 1.1 `src/i18n.ts` (en/de) und alle sichtbaren Texte umstellen
+- [x] 1.2 Onboarding-Screen: Sprache, Einstieg, Mitteilungen
+- [x] 1.3 Sprachwechsel im Profil, `language` an `/recommend` und `PUT /me/settings`
+- [x] 1.4 `occasionDate` an der Person (optional, Eingabe beim Anlegen/Bearbeiten)
 
 ## 2. Backend: Push und täglicher Check (Paket H)
 
@@ -14,8 +14,8 @@
 
 ## 3. App: Push (Paket G)
 
-- [ ] 3.1 `expo-notifications`, Plugin, Erlaubnis im Onboarding, Token registrieren/entfernen
-- [ ] 3.2 Tippen auf Mitteilung öffnet Person bzw. Profil
+- [x] 3.1 `expo-notifications`, Plugin, Erlaubnis im Onboarding, Token registrieren/entfernen
+- [x] 3.2 Tippen auf Mitteilung öffnet Person bzw. Profil
 - [ ] 3.3 Push-Fähigkeit der App-ID aktivieren (Lead, ASC-API)
 
 ## 4. Abschluss (Lead)

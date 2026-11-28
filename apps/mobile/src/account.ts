@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { ApiError, call, clearSession, deviceLanguage, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
+import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
+import { getLanguage, isLang, t, type Lang } from './i18n';
+import { forgetPushToken, pushTokenForSignOut, registerPush, watchPush } from './push';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
@@ -29,6 +31,7 @@ const toPerson = (p: any, i: number): Person | null =>
         lastResultId: typeof p.lastResultId === 'string' ? p.lastResultId : null,
         pins: Array.isArray(p.pins) ? p.pins : [],
         ...friendFields(p),
+        ...dateField(p),
         updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
       }
     : null;
@@ -39,6 +42,7 @@ const toMe = (p: any): Me | null =>
         color: typeof p.color === 'string' ? p.color : TAG_COLORS[1],
         wishes: toWishes(p.wishes),
         share: toShare(p.share),
+        ...(isLang(p.language) ? { language: p.language } : {}),
         updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
       }
     : null;
@@ -101,13 +105,15 @@ export type Account = {
   verify: (email: string, code: string) => Promise<void>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  // tells the account the app language, for push texts; does nothing when signed out
+  saveLanguage: (lang: Lang) => void;
 };
 
 export function explain(e: unknown, fallback: string): string {
   if (!(e instanceof ApiError)) return fallback;
-  if (e.status === 401) return 'That code is wrong or has expired.';
-  if (e.status === 422) return "That e-mail address doesn't look right.";
-  if (e.status === 429) return 'Too many tries. Wait a minute and try again.';
+  if (e.status === 401) return t('codeWrong');
+  if (e.status === 422) return t('badEmail');
+  if (e.status === 429) return t('tooManyTries');
   return e.message;
 }
 
@@ -194,7 +200,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
         if (!server) throw e;
       }
     }
-    throw new ApiError('The account changed while syncing. Try again.', 409);
+    throw new ApiError(t('syncChanged'), 409);
   };
 
   const sync = useCallback((pull: boolean) => {
@@ -213,10 +219,10 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
         if (e instanceof ApiError && e.status === 413) {
           // no point in repeating; waits for the next change
           pausedKey.current = key;
-          setSyncError('Your data is too large to sync.');
+          setSyncError(t('syncTooLarge'));
         } else {
           failures.current += 1;
-          setSyncError(e instanceof ApiError && e.status === 0 ? 'Offline, will sync later.' : 'Sync failed, will retry.');
+          setSyncError(e instanceof ApiError && e.status === 0 ? t('syncOffline') : t('syncFailed'));
         }
       } finally {
         setSyncing(false);
@@ -247,10 +253,15 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setSessionLostHandler(drop);
   }, [drop]);
 
-  // app start: pull the account once
+  // app start: pull the account once and refresh the push token, which can change
   useEffect(() => {
-    if (getSession()) sync(true);
+    if (!getSession()) return;
+    sync(true);
+    registerPush().catch(() => {});
   }, []);
+
+  // notifications allowed later in the iOS settings, or a new token from iOS
+  useEffect(() => watchPush(), []);
 
   // coming back to the foreground: pull again, at most once a minute
   useEffect(() => {
@@ -281,7 +292,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
   };
 
   const requestCode = async (email: string) => {
-    const r = await call<{ dev_code?: string } | undefined>('POST', '/auth/request-code', { email: email.trim().toLowerCase(), language: deviceLanguage() }, false);
+    const r = await call<{ dev_code?: string } | undefined>('POST', '/auth/request-code', { email: email.trim().toLowerCase(), language: getLanguage() }, false);
     setDevCode(r?.dev_code ?? null);
   };
   const verify = async (email: string, code: string) => {
@@ -291,17 +302,33 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setNotStored(!setSession(next));
     setSessionState(next);
     setDevCode(null);
+    saveLanguage(getLanguage());
+    // notifications allowed earlier, e.g. in the onboarding, start now
+    registerPush().catch(() => {});
     sync(true);
   };
+  const saveLanguage = (lang: Lang) => {
+    if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
+  };
   const signOut = async () => {
-    await call('POST', '/auth/logout').catch(() => {});
+    const device_token = await pushTokenForSignOut();
+    try {
+      await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
+    } catch (e) {
+      // only a gone session counts as signed out; anything else keeps it so the user can try again
+      if (!(e instanceof ApiError && e.status === 401)) throw e;
+    }
+    forgetPushToken();
     drop();
   };
   const deleteAccount = async () => {
+    await pushTokenForSignOut();
+    // DELETE /me removes the account's devices on the server
     await call('DELETE', '/me');
+    forgetPushToken();
     // the data stays on this device
     drop();
   };
 
-  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson };
+  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage };
 }

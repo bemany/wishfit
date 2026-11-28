@@ -15,6 +15,9 @@ import { useAccount } from './src/account';
 import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
+import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
+import { Onboarding } from './src/onboarding';
+import { onPushOpen } from './src/push';
 import { C } from './src/theme';
 
 // Working title, the name vote is still running: change it here only
@@ -60,6 +63,9 @@ function Root() {
   const [people, setPeople] = useState<Person[]>(loadPeople);
   const [me, setMe] = useState<Me>(loadMe);
   const [view, setView] = useState<View_>({ name: 'people' });
+  // every screen reads its texts through t(), so a new language re-renders them from here
+  const [lang, setLang] = useState<Lang>(getLanguage);
+  const [onboarded, setOnboarded] = useState(() => readSettings().onboarded === true);
   // ponytail: one request at a time across all threads
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
@@ -81,6 +87,13 @@ function Root() {
     meRef.current = stamped;
     setMe(stamped);
     saveMe(stamped);
+  };
+
+  const changeLanguage = (next: Lang) => {
+    setLanguage(next);
+    setLang(next);
+    if (meRef.current.language !== next) changeMe({ ...meRef.current, language: next });
+    account.saveLanguage(next);
   };
 
   // Opening my profile (and importing into it) refreshes prices older than 6 h; one request at a time,
@@ -119,7 +132,7 @@ function Root() {
         const last = p.messages.at(-1);
         return last?.role === 'user' && last.text === text ? { ...p, messages: p.messages.slice(0, -1) } : p;
       });
-      setError({ id: person.id, text: e instanceof Error ? e.message : 'Unknown error.' });
+      setError({ id: person.id, text: e instanceof Error ? e.message : t('unknownError') });
     } finally {
       setBusyId(null);
     }
@@ -139,7 +152,7 @@ function Root() {
     if (known) return setView({ name: 'thread', id: known.id });
     if (meRef.current.share?.slug === slug) return;
     // ponytail: occasion and budget are not on a shared tag; defaults the user can change under More
-    add({ name: profile.name.trim() || 'Friend', occasion: 'Birthday', budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
+    add({ name: profile.name.trim() || t('friend'), occasion: t('birthday'), budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
   };
 
   // Opening a friend's chat reloads their shared tag and the prices on it; 404 keeps the person with a note
@@ -193,6 +206,16 @@ function Root() {
     return () => sub.remove();
   }, []);
 
+  // Tapping a notification: the person's chat, otherwise the shared tag it is about
+  useEffect(
+    () =>
+      onPushOpen(({ personId, slug }) => {
+        if (personId && peopleRef.current.some((p) => p.id === personId)) return setView({ name: 'thread', id: personId });
+        if (slug) setView({ name: 'profile', slug });
+      }),
+    [],
+  );
+
   const person = 'id' in view ? (people.find((p) => p.id === view.id) ?? null) : null;
   // Screen transitions: forward slides in from the right, back slides out to the right (button and swipe alike)
   const x = useRef(new Animated.Value(0)).current;
@@ -223,7 +246,17 @@ function Root() {
     <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
       <StatusBar style="dark" />
       <Animated.View style={{ flex: 1, transform: [{ translateX: view.name === 'people' ? 0 : x }] }}>
-      {view.name === 'profile' ? (
+      {!onboarded ? (
+        <Onboarding
+          lang={lang}
+          signedIn={!!account.session}
+          onLanguage={changeLanguage}
+          onDone={() => {
+            writeSettings({ onboarded: true });
+            setOnboarded(true);
+          }}
+        />
+      ) : view.name === 'profile' ? (
         <ProfileView key={view.slug} slug={view.slug} people={people} mine={me.share?.slug === view.slug} onBack={goBack} onAdd={(profile) => addFriend(view.slug, profile)} onOpen={(p) => setView({ name: 'thread', id: p.id })} />
       ) : view.name === 'add' ? (
         <AddPerson usedColors={people.map((p) => p.color)} onBack={goBack} onDone={add} />
@@ -231,6 +264,8 @@ function Root() {
         <MeScreen
           me={me}
           account={account}
+          lang={lang}
+          onLanguage={changeLanguage}
           onBack={goBack}
           onChange={changeMe}
         />
@@ -273,7 +308,7 @@ function Root() {
             const to = people.find((p) => p.id === id);
             if (!to) return;
             setView({ name: 'thread', id });
-            send(to, 'What about this?', photo);
+            send(to, t('whatAbout'), photo);
           }}
         />
       ) : view.name === 'detail' ? (
@@ -288,7 +323,7 @@ function Root() {
         <People brand={BRAND} people={people} onOpen={(p) => setView({ name: 'thread', id: p.id })} onAdd={() => setView({ name: 'add' })} onMe={() => setView({ name: 'me' })} onSnap={() => setView({ name: 'snap', id: null })} />
       )}
       </Animated.View>
-      {view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
+      {onboarded && view.name !== 'people' && <EdgeBack x={x} onBack={goBack} />}
     </View>
   );
 }
