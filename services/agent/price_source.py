@@ -26,14 +26,6 @@ def open_session() -> str | None:
     return None if name() == "apify" else idealo.open_session()
 
 
-def call_timeout_s() -> float:
-    return 45 if name() == "apify" else 8  # an actor run takes 15-20 s, an MCP call a second
-
-
-def request_deadline_s() -> float:
-    return 55 if name() == "apify" else 25
-
-
 def call(tool: str, arguments: dict, session: str | None, timeout: float | None, summarize):
     """Result in the internal format. For idealo `summarize` turns the raw MCP answer into it; apify maps itself."""
     if name() == "apify":

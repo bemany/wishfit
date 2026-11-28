@@ -5,6 +5,8 @@ import os
 
 import httpx
 
+import costs
+
 log = logging.getLogger("wishfit.mail")
 
 TEXTS = {
@@ -106,3 +108,4 @@ def send_code(email: str, code: str, language: str = "de") -> None:
         raise RuntimeError(f"resend unreachable: {e.__class__.__name__}") from e
     if r.status_code >= 300:
         raise RuntimeError(f"resend returned {r.status_code}")
+    costs.record("resend", "mail", costs.RESEND_MAIL_USD, 1)

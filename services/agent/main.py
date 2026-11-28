@@ -189,8 +189,7 @@ def _eur(text: str | None) -> float | None:
 def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, summarize, timeout: float | None = None) -> dict | list | None:
     started = time.perf_counter()
     try:
-        extra = {} if timeout is None else {"timeout": timeout}
-        result = summarize(idealo.call_tool(tool, arguments, session, **extra))
+        result = price_source.call(tool, arguments, session, timeout, summarize)
     except Exception as exc:  # one failed lookup must not sink the whole request; the model sees the gap
         result = {"error": f"{type(exc).__name__}: {exc}"[:200]}
     trace["idealo_calls"].append({
@@ -198,7 +197,7 @@ def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, s
         "arguments": arguments,
         "result": result,
         "duration_ms": round((time.perf_counter() - started) * 1000),
-        "source": "live",
+        "source": price_source.trace_source(),
     })
     return result
 
@@ -278,19 +277,19 @@ def offer_from_hit(match: dict) -> list[dict]:
 def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
     """Live idealo data over the idealo MCP: per wish a catalog search within budget, then offers
     (with shipping and delivery) and the 30-day price history for the two best matches."""
-    if not os.environ.get("IDEALO_MCP_URL") or not os.environ.get("IDEALO_CLIENT_ID"):
+    if not price_source.configured():
         raise HTTPException(502, "idealo MCP not configured yet")
     try:
-        session = idealo.open_session()
+        session = price_source.open_session()
     except Exception as exc:
         raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
     wishes = req.wishes[:5]
     # ponytail: 3 workers = the trial tier's 3 req/s; raise with a partner-tier key
     with ThreadPoolExecutor(max_workers=3) as pool:
         searches = list(pool.map(
-            lambda w: _idealo_call(session, "search_products",
+            costs.bound(lambda w: _idealo_call(session, "search_products",
                                    {"query": w, "filters": {"maxPrice": req.budget_eur, "availableOnly": True}},
-                                   trace, _search_summary),
+                                   trace, _search_summary)),
             wishes,
         ))
         data = []
@@ -303,8 +302,8 @@ def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
                     m["offers"], m["price_history_30d"] = offer_from_hit(m), None  # nothing to look up for these
                     continue
                 ref = {"productRef": m["productRef"]}
-                jobs.append((m, "offers", pool.submit(_idealo_call, session, "get_product_offers", ref, trace, _offers_summary)))
-                jobs.append((m, "price_history_30d", pool.submit(_idealo_call, session, "get_product_price_history", ref, trace, _history_summary)))
+                jobs.append((m, "offers", pool.submit(costs.bound(_idealo_call), session, "get_product_offers", ref, trace, _offers_summary)))
+                jobs.append((m, "price_history_30d", pool.submit(costs.bound(_idealo_call), session, "get_product_price_history", ref, trace, _history_summary)))
         for match, key, future in jobs:
             match[key] = future.result()
     for entry in data:
@@ -366,6 +365,15 @@ MAX_PRICE_WISHES = 20
 TREND_THRESHOLD = 3.0  # percent over 30 days
 PRICE_DEADLINE_S = 25  # whole request; wishes not done by then come back as null
 PRICE_CALL_TIMEOUT_S = 8  # per idealo call
+APIFY_DEADLINE_S, APIFY_CALL_TIMEOUT_S = 55, 45  # an actor run takes 15-20 s, an MCP call a second
+
+
+def _request_deadline_s() -> float:
+    return APIFY_DEADLINE_S if price_source.name() == "apify" else PRICE_DEADLINE_S
+
+
+def _call_timeout_s() -> float:
+    return APIFY_CALL_TIMEOUT_S if price_source.name() == "apify" else PRICE_CALL_TIMEOUT_S
 PRICE_CACHE_TTL_S = 30 * 60
 PRICE_CACHE_MAX = 500
 _price_cache: dict[str, tuple[float, dict]] = {}  # normalized title -> (monotonic time, price); per instance
@@ -409,7 +417,7 @@ def price_for(session: str | None, title: str, deadline: float | None = None, st
     trace = {"idealo_calls": []}  # the shared helper logs into a trace; not kept here
 
     def call(tool: str, arguments: dict, summarize):
-        left = PRICE_CALL_TIMEOUT_S if deadline is None else min(PRICE_CALL_TIMEOUT_S, deadline - time.monotonic())
+        left = _call_timeout_s() if deadline is None else min(_call_timeout_s(), deadline - time.monotonic())
         if left <= 0:
             return None
         return _idealo_call(session, tool, arguments, trace, summarize, timeout=left)
@@ -450,10 +458,10 @@ def cron_daily(request: Request) -> dict:
         raise HTTPException(401, "unauthorized")
     if not push.apns_configured():
         raise HTTPException(503, "apns not configured")
-    return push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), idealo.open_session)
+    return push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), price_source.open_session)
 
 
-admin.RUN_CRON = lambda: push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), idealo.open_session)
+admin.RUN_CRON = lambda: push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), price_source.open_session)
 
 
 @app.post("/wishes/price")
@@ -462,17 +470,17 @@ def wishes_price(req: PriceRequest, request: Request) -> dict:
         raise HTTPException(422, f"wishes: at most {MAX_PRICE_WISHES} per request")
     if profiles.limited(request):
         raise HTTPException(429, "too many requests, try again in a minute")
-    if not os.environ.get("IDEALO_MCP_URL") or not os.environ.get("IDEALO_CLIENT_ID"):
+    if not price_source.configured():
         raise HTTPException(503, "idealo MCP not configured")
     titles = [w.title for w in req.wishes]
     if not any(t.strip() for t in titles):
         return {"prices": [None] * len(titles)}
     try:
-        session = idealo.open_session()
+        session = price_source.open_session()
     except Exception as exc:
         raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
 
-    deadline = time.monotonic() + PRICE_DEADLINE_S
+    deadline = time.monotonic() + _request_deadline_s()
 
     def one(title: str) -> dict | None:
         key = " ".join(title.lower().split())
@@ -491,8 +499,8 @@ def wishes_price(req: PriceRequest, request: Request) -> dict:
 
     # ponytail: 3 workers; idealo.call_tool also throttles per instance to 3 calls/s across all requests
     pool = ThreadPoolExecutor(max_workers=3)
-    futures = [pool.submit(one, t) for t in titles]
-    done, _ = wait(futures, timeout=PRICE_DEADLINE_S)
+    futures = [pool.submit(costs.bound(one), t) for t in titles]
+    done, _ = wait(futures, timeout=_request_deadline_s())
     pool.shutdown(wait=False, cancel_futures=True)
     return {"prices": [f.result() if f in done else None for f in futures]}
 
@@ -847,6 +855,7 @@ def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict
 @app.post("/recommend")
 def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_user)) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
+    costs.ctx.set({"user_id": user["id"] if user else None, "result_id": result_id})
     trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
     req = with_photo(req, trace)  # before the conversation, so the named product is part of the stored message
     req = with_amazon_link(req, trace)  # likewise: the stored message holds the resolved term, not the link
