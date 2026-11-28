@@ -78,7 +78,7 @@ export default function LandingPage() {
             <a href="#film" className={`${pill} bg-white`}>
               Watch the film
             </a>
-            <a href="#install" className={`${pill} bg-white`}>
+            <a href={`${APP_URL}/install`} className={`${pill} bg-white`}>
               Add to home screen
             </a>
           </div>

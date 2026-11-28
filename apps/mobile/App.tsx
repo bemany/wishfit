@@ -19,7 +19,7 @@ import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, frien
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
 import { installTrigger } from './src/install';
-import { InstallSheet } from './src/install-ui';
+import { InstallBanner, InstallSheet } from './src/install-ui';
 import { Onboarding } from './src/onboarding';
 import { onPushOpen } from './src/push';
 import { C } from './src/theme';
@@ -83,7 +83,9 @@ function Root() {
   const [lang, setLang] = useState<Lang>(getLanguage);
   const [onboarded, setOnboarded] = useState(() => readSettings().onboarded === true);
   // ponytail: one request at a time across all threads
-  const [installOpen, setInstallOpen] = useState(false);
+  // the install hint: a banner after the sign-in, the sheet when asked for; /install opens the sheet at once, signed in or not
+  const [installBanner, setInstallBanner] = useState(false);
+  const [installOpen, setInstallOpen] = useState(() => Platform.OS === 'web' && window.location.pathname === '/install');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
 
@@ -150,7 +152,7 @@ function Root() {
     try {
       const result = await recommend(person, text, photo?.base64, friendContext(person));
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
-      if (installTrigger('recommendation')) setInstallOpen(true);
+      if (installTrigger('recommendation')) setInstallBanner(true);
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
       update(person.id, (p) => {
@@ -426,8 +428,9 @@ function Root() {
   };
 
   return (
-    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
+    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: installBanner && !installOpen ? 0 : insets.top + 8 }}>
       <StatusBar style="dark" />
+      <InstallBanner open={installBanner && !installOpen} onClose={() => setInstallBanner(false)} onOpenSheet={() => setInstallOpen(true)} />
       {!signedIn && view.name === 'profile' && !askSignIn ? (
         // a shared tag without an account: the preview, before or after the onboarding
         <ProfileView
@@ -455,7 +458,7 @@ function Root() {
             writeSettings({ onboarded: true });
             setOnboarded(true);
             // the install hint only comes once the app is usable, after the sign-in
-            if (installTrigger('onboarding')) setInstallOpen(true);
+            if (installTrigger('onboarding')) setInstallBanner(true);
           }}
         />
       ) : !signedIn ? (
@@ -483,7 +486,7 @@ function Root() {
           {view.name !== 'people' && <EdgeBack p={p} onStart={swipe.onStart} onRelease={swipe.onRelease} />}
         </View>
       )}
-      <InstallSheet open={installOpen} onClose={() => setInstallOpen(false)} />
+      <InstallSheet open={installOpen} onClose={() => { setInstallOpen(false); setInstallBanner(false); }} />
     </View>
   );
 }
