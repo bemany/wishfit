@@ -13,7 +13,8 @@ import Reanimated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, type
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAccount } from './src/account';
-import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
+import { SignIn } from './src/account-ui';
+import { getSession, idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
@@ -94,10 +95,18 @@ function Root() {
     savePeople(next);
     setPeople(next);
   };
-  const account = useAccount(people, me, applyPeople, setMe, peopleRef);
-  accountRef.current = account;
   const meRef = useRef(me);
   meRef.current = me;
+  // the account's language comes to this device without being sent back. Not stamped: the language lives in
+  // the account settings, and a stamp would let an empty profile on a new device win over the account's
+  const adoptLanguage = (next: Lang) => {
+    setLanguage(next);
+    setLang(next);
+    if (meRef.current.language !== next) changeMe({ ...meRef.current, language: next }, false);
+  };
+  const account = useAccount(people, me, applyPeople, setMe, peopleRef, adoptLanguage);
+  accountRef.current = account;
+  const signedIn = !!account.session;
   // stamp: false for what the app does by itself (prices), so it never wins a sync over a real edit
   const changeMe = (next: Me, stamp = true) => {
     const stamped = stamp ? { ...next, updatedAt: Date.now() } : next;
@@ -107,9 +116,7 @@ function Root() {
   };
 
   const changeLanguage = (next: Lang) => {
-    setLanguage(next);
-    setLang(next);
-    if (meRef.current.language !== next) changeMe({ ...meRef.current, language: next });
+    adoptLanguage(next);
     account.saveLanguage(next);
   };
 
@@ -173,6 +180,23 @@ function Root() {
     add({ name: profile.name.trim() || t('friend'), occasion: t('birthday'), budget: 50, color: friendColor(profile.color, peopleRef.current.map((p) => p.color)), friendSlug: slug, wishes: profile.wishes });
   };
 
+  // Without an account a shared tag is only a preview: "Add as friend" asks to sign in first and adds the
+  // friend once the first pull is done, so a friend already in the account is not added twice
+  const [askSignIn, setAskSignIn] = useState(false);
+  const addAfter = useRef<{ slug: string; profile: PublicProfile } | null>(null);
+  const afterSignIn = () => {
+    setAskSignIn(false);
+    const pending = addAfter.current;
+    addAfter.current = null;
+    if (pending) account.settled().then(() => addFriend(pending.slug, pending.profile));
+  };
+  // signed out, account deleted or session lost: the next sign-in starts on the tags, a shared tag stays open
+  const wasSignedIn = useRef(signedIn);
+  useEffect(() => {
+    if (wasSignedIn.current && !signedIn && viewRef.current.name !== 'profile') setViewRaw({ name: 'people' });
+    wasSignedIn.current = signedIn;
+  }, [signedIn]);
+
   // Opening a friend's chat reloads their shared tag and the prices on it; 404 keeps the person with a note
   const [goneSlugs, setGoneSlugs] = useState<string[]>([]);
   const openId = view.name === 'thread' ? view.id : null;
@@ -228,7 +252,8 @@ function Root() {
   useEffect(
     () =>
       onPushOpen(({ personId, slug }) => {
-        if (personId && peopleRef.current.some((p) => p.id === personId)) return setViewRef.current({ name: 'thread', id: personId });
+        // signed out, the person may only come back with the account, so the chat is kept as the target
+        if (personId && (!getSession() || peopleRef.current.some((p) => p.id === personId))) return setViewRef.current({ name: 'thread', id: personId });
         if (slug) setViewRef.current({ name: 'profile', slug });
       }),
     [],
@@ -252,7 +277,8 @@ function Root() {
   const kindFor = (v: View_, zoom?: boolean): Kind => (reduce ? 'fade' : zoom ? 'zoom' : 'slide');
   // forward: the new screen comes in over the current one
   const setView = (next: View_, zoom = false) => {
-    if (!onboarded || keyOf(next) === keyOf(viewRef.current)) return setViewRaw(next);
+    // before sign-in the view is only remembered: it opens once the gate lets the app through
+    if (!onboarded || !getSession() || keyOf(next) === keyOf(viewRef.current)) return setViewRaw(next);
     kindSV.value = kindFor(next, zoom);
     p.value = 0;
     setTr({ under: viewRef.current, n: ++trN.current, dir: 'in' });
@@ -273,7 +299,7 @@ function Root() {
   };
   // back: the current screen leaves, the target is shown below it and then becomes the screen
   const pop = (target: View_) => {
-    if (!onboarded) {
+    if (!onboarded || !getSession()) {
       setViewRaw(target);
       return flushRemove();
     }
@@ -400,18 +426,43 @@ function Root() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
+    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
       <StatusBar style="dark" />
-      {!onboarded ? (
+      {!signedIn && view.name === 'profile' && !askSignIn ? (
+        // a shared tag without an account: the preview, before or after the onboarding
+        <ProfileView
+          key={view.slug}
+          slug={view.slug}
+          people={people}
+          mine={false}
+          onBack={() => {
+            if (Platform.OS === 'web') window.history.replaceState(null, '', '/');
+            setViewRaw({ name: 'people' });
+          }}
+          onAdd={(profile) => {
+            addAfter.current = { slug: view.slug, profile };
+            setAskSignIn(true);
+          }}
+          onOpen={() => setAskSignIn(true)}
+        />
+      ) : !onboarded ? (
         <Onboarding
           lang={lang}
-          signedIn={!!account.session}
+          account={account}
           onLanguage={changeLanguage}
+          onSignedIn={afterSignIn}
           onDone={() => {
             writeSettings({ onboarded: true });
             setOnboarded(true);
+            // the install hint only comes once the app is usable, after the sign-in
             if (installTrigger('onboarding')) setInstallOpen(true);
           }}
+        />
+      ) : !signedIn ? (
+        <SignIn
+          account={account}
+          onBack={askSignIn && view.name === 'profile' ? () => { addAfter.current = null; setAskSignIn(false); } : undefined}
+          onDone={afterSignIn}
         />
       ) : (
         <View style={{ flex: 1 }}>

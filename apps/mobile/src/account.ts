@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
-import { getLanguage, isLang, t, type Lang } from './i18n';
+import { getLanguage, isLang, readSettings, t, writeSettings, type Lang } from './i18n';
 import { forgetPushToken, pushTokenForSignOut, registerPush, watchPush } from './push';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
@@ -73,10 +73,12 @@ export function applyTombs(people: Person[], a: Tomb[], b: Tomb[], now = Date.no
   const tombs = [...newest].filter(([, at]) => now - at < TOMB_TTL_MS).map(([id, updatedAt]) => ({ id, updatedAt }));
   return { people: kept, tombs: tombs.filter((t) => !kept.some((p) => p.id === t.id)) };
 }
-// My profile: the newer one wins; a tie keeps the local one, so an untouched empty profile never hides the account's
+// My profile: the newer one wins; a tie keeps the local one. A local profile without name and wishes (a new
+// device) never wins against the account's, whatever its stamp
 export function mergeMe(local: Me, server: Me | null): Me {
   if (!server) return local;
-  const [win, lose] = stamp(server) > stamp(local) ? [server, local] : [local, server];
+  const empty = local.name.trim() === '' && local.wishes.length === 0;
+  const [win, lose] = empty || stamp(server) > stamp(local) ? [server, local] : [local, server];
   return { ...win, wishes: newerPrices(win.wishes, lose.wishes) };
 }
 
@@ -103,13 +105,22 @@ export type Account = {
   devCode: string | null;
   requestCode: (email: string) => Promise<void>;
   verify: (email: string, code: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  // force: signs out although the last changes did not reach the account (offline, too large); they are lost
+  signOut: (force?: boolean) => Promise<void>;
+  // while signing out the app takes no input, so no change slips in after the last sync
+  signingOut: boolean;
   deleteAccount: () => Promise<void>;
   // tells the account the app language, for push texts; does nothing when signed out
   saveLanguage: (lang: Lang) => void;
+  // resolves once the syncs queued so far are done, e.g. the first pull after signing in
+  settled: () => Promise<void>;
 };
 
+// a refusal with a readable reason, e.g. signing out before the last changes reached the account
+export class AccountError extends Error {}
+
 export function explain(e: unknown, fallback: string): string {
+  if (e instanceof AccountError) return e.message;
   if (!(e instanceof ApiError)) return fallback;
   if (e.status === 401) return t('codeWrong');
   if (e.status === 422) return t('badEmail');
@@ -117,18 +128,26 @@ export function explain(e: unknown, fallback: string): string {
   return e.message;
 }
 
+const EMPTY = (): Local => ({ people: [], me: { name: '', color: TAG_COLORS[1], wishes: [] }, tombs: [] });
+
 const loadTombs = (): Tomb[] => {
   const raw = readJson('tombstones');
   return (Array.isArray(raw) ? raw.map(toTomb) : []).filter((t): t is Tomb => !!t);
 };
 
 // applyPeople changes the people synchronously through a ref in App, so parallel updates never overwrite each other
-export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Person[]) => Person[]) => void, setMe: (m: Me) => void, peopleRef: { current: Person[] }): Account {
+// adoptLanguage: the language stored in the account wins over this device's, see openspec/changes/signin-required
+export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Person[]) => Person[]) => void, setMe: (m: Me) => void, peopleRef: { current: Person[] }, adoptLanguage: (lang: Lang) => void): Account {
+  const adopt = useRef(adoptLanguage);
+  adopt.current = adoptLanguage;
   const [session, setSessionState] = useState<Session | null>(getSession);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [devCode, setDevCode] = useState<string | null>(null);
   const [notStored, setNotStored] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  // counts the user's language choices, see the app start below
+  const langPicks = useRef(0);
   const [tombs, setTombsState] = useState<Tomb[]>(loadTombs);
 
   const tombsRef = useRef(tombs);
@@ -232,10 +251,18 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     return queue.current;
   }, []);
 
-  const drop = useCallback(() => {
+  // clear: signing out or deleting also empties this device, the data belongs to the account and the next
+  // sign-in must not merge it into another account. A lost session (401) keeps it for the same account
+  const drop = useCallback((clear = false) => {
     clearSession();
+    // the next sign-in registers the device again, whichever account it is
+    writeSettings({ pushDone: null });
+    if (clear) {
+      applyLocal(EMPTY());
+      writeSettings({ owner: null });
+    }
     // the profile link belongs to the account
-    if (meRef.current.share) {
+    else if (meRef.current.share) {
       const next = { ...meRef.current, share: null };
       meRef.current = next;
       setMe(next);
@@ -250,12 +277,23 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
 
   // a 401 on any call means the token is gone
   useEffect(() => {
-    setSessionLostHandler(drop);
+    setSessionLostHandler(() => drop());
   }, [drop]);
 
-  // app start: pull the account once and refresh the push token, which can change
+  // app start: pull the account once and refresh the push token, which can change. The account language
+  // may have been changed on another device
   useEffect(() => {
-    if (!getSession()) return;
+    const start = getSession();
+    if (!start) return;
+    // signed in by an older version, which did not note the owner yet
+    if (!readSettings().owner) writeSettings({ owner: start.email });
+    // a choice the user makes while the answer is on its way wins
+    const picked = langPicks.current;
+    call<{ language?: string | null }>('GET', '/me')
+      .then((r) => {
+        if (getSession() && langPicks.current === picked && isLang(r?.language) && r.language !== getLanguage()) adopt.current(r.language);
+      })
+      .catch(() => {});
     sync(true);
     registerPush().catch(() => {});
   }, []);
@@ -296,39 +334,59 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setDevCode(r?.dev_code ?? null);
   };
   const verify = async (email: string, code: string) => {
-    const r = await call<{ token: string; user: { email: string } }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim() }, false);
+    const r = await call<{ token: string; user: { email: string; language?: string | null }; created?: boolean }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim() }, false);
     const next: Session = { token: r.token, email: r.user.email };
     reset();
+    // after a lost session (401) the device still holds the last account's data: a different account starts
+    // empty instead of merging it. Data from before accounts (no owner) goes into the first account
+    const owner = readSettings().owner;
+    if (owner && owner !== next.email) applyLocal(EMPTY());
+    writeSettings({ owner: next.email });
     setNotStored(!setSession(next));
     setSessionState(next);
     setDevCode(null);
-    saveLanguage(getLanguage());
+    // an existing account brings its language to this device; a new one (or one without) takes the app's
+    if (r.created === false && isLang(r.user.language)) {
+      if (r.user.language !== getLanguage()) adopt.current(r.user.language);
+    } else saveLanguage(getLanguage());
     // notifications allowed earlier, e.g. in the onboarding, start now
     registerPush().catch(() => {});
     sync(true);
   };
   const saveLanguage = (lang: Lang) => {
+    langPicks.current += 1;
     if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
-  const signOut = async () => {
-    const device_token = await pushTokenForSignOut();
+  const signOut = async (force = false) => {
+    setSigningOut(true);
     try {
-      await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
-    } catch (e) {
-      // only a gone session counts as signed out; anything else keeps it so the user can try again
-      if (!(e instanceof ApiError && e.status === 401)) throw e;
+      // the push token may take a few seconds; the last sync comes after it, right before the logout
+      const device_token = await pushTokenForSignOut();
+      // the last changes go to the account first; without them signing out would lose them
+      if (sent.current !== keyOf(current())) await sync(!ready.current);
+      if (!force && getSession() && sent.current !== keyOf(current())) throw new AccountError(t('unsynced'));
+      try {
+        await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
+      } catch (e) {
+        // only a gone session counts as signed out; anything else keeps it so the user can try again.
+        // Forced, the device signs out anyway; the token then simply expires on the server
+        if (!force && !(e instanceof ApiError && e.status === 401)) throw e;
+      }
+      forgetPushToken();
+      drop(true);
+    } finally {
+      setSigningOut(false);
     }
-    forgetPushToken();
-    drop();
   };
   const deleteAccount = async () => {
     await pushTokenForSignOut();
     // DELETE /me removes the account's devices on the server
     await call('DELETE', '/me');
     forgetPushToken();
-    // the data stays on this device
-    drop();
+    drop(true);
   };
 
-  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage };
+  const settled = () => queue.current.then(() => {}, () => {});
+
+  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, signingOut, deleteAccount, removePerson, saveLanguage, settled };
 }
