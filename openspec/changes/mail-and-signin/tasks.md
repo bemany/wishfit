@@ -3,8 +3,8 @@
 - [x] 1.2 selfcheck: Sprache und HTML-Teil
 
 ## 2. App
-- [ ] 2.1 Push-Registrierung nur bei neuem Token oder neuer Session
-- [ ] 2.2 Netzfehler bei verify: Meldung und „Neuen Code senden"
+- [x] 2.1 Push-Registrierung nur bei neuem Token oder neuer Session
+- [x] 2.2 Netzfehler bei verify: Meldung und „Neuen Code senden"
 - [ ] 2.3 Platzhalter ohne gequetschte Wortabstände (Ursache finden)
 
 ## 3. Prüfung

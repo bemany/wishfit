@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Platform, TextInput, View } from 'react-native';
 
+import { ApiError } from './api';
 import { explain, type Account } from './account';
 import { t } from './i18n';
 import { C } from './theme';
@@ -15,14 +16,20 @@ export function AccountPanel({ account }: { account: Account }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // the answer to verify never arrived; the server may have used the code up already
+  const [lost, setLost] = useState(false);
 
-  const run = async (fn: () => Promise<void>, fallback: string) => {
+  const run = async (fn: () => Promise<void>, fallback: string, verifying = false) => {
     setBusy(true);
     setNote(null);
+    setLost(false);
     try {
       await fn();
     } catch (e) {
-      setNote(explain(e, fallback));
+      if (verifying && e instanceof ApiError && e.status === 0) {
+        setNote(t('connectionLost'));
+        setLost(true);
+      } else setNote(explain(e, fallback));
     } finally {
       setBusy(false);
     }
@@ -41,7 +48,7 @@ export function AccountPanel({ account }: { account: Account }) {
       setStep('idle');
       setEmail('');
       setCode('');
-    }, t('tryAgain'));
+    }, t('tryAgain'), true);
 
   const askDelete = () => {
     const del = () => run(account.deleteAccount, t('cantDelete'));
@@ -103,6 +110,7 @@ export function AccountPanel({ account }: { account: Account }) {
         </>
       )}
       {note && <Mono style={{ color: C.tomato }}>{note}</Mono>}
+      {step === 'code' && lost && <Btn label={t('newCode')} disabled={busy} onPress={sendCode} />}
     </View>
   );
 }
