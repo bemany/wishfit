@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 import { t, type Lang } from './i18n';
 import { C, F } from './theme';
@@ -103,6 +103,25 @@ export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; ti
       </Mono>
     )}
     {right ?? <View style={{ width: 44 }} />}
+  </View>
+);
+
+// The fixed header of a screen: the bar stays put, 10 pt of air below it, and the scrolling content fades out
+// in a short gradient under it instead of being cut off hard at the back button
+export const Header = (p: { onBack?: () => void; title?: string; left?: ReactNode; right?: ReactNode }) => (
+  <View style={{ zIndex: 2, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: C.paper }}>
+    <TopBar {...p} />
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: '100%', height: 16 }}>
+      <Svg width="100%" height="16">
+        <Defs>
+          <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={C.paper} stopOpacity={1} />
+            <Stop offset="1" stopColor={C.paper} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="16" fill="url(#fade)" />
+      </Svg>
+    </View>
   </View>
 );
 

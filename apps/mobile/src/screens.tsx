@@ -13,7 +13,7 @@ import { canOpenSettings, openLink, openSettings, shareText } from './platform';
 import { askMicPermission, dictate, speechAvailable } from './speech';
 import { getLanguage, locale, t, wishCount, type Key, type Lang } from './i18n';
 import { C, F, TAG_COLORS, eur } from './theme';
-import { Body, Btn, Bubble, LanguagePicker, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Tag, TopBar, s } from './ui';
+import { Body, Btn, Bubble, LanguagePicker, Line, Mono, Name, Pill, Round, Say, Stamp, Stamps, Header, Tag, TopBar, s } from './ui';
 
 const ACTION: Record<Recommendation['action'], Key> = { buy: 'actionBuy', wait: 'actionWait', alternative: 'actionAlternative' };
 const actionOf = (a: Recommendation['action']) => (ACTION[a] ? t(ACTION[a]) : '');
@@ -147,8 +147,8 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
 
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
+      <Header onBack={onBack} title={initial ? t('moreOf', { name: initial.name }) : t('addSomeone')} />
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
-        <TopBar onBack={onBack} title={initial ? t('moreOf', { name: initial.name }) : t('addSomeone')} />
         <Tag color={color} style={{ gap: 14 }}>
           <Mono>{initial ? t('editTag') : t('newTag')}</Mono>
           <View style={{ gap: 4 }}>
@@ -247,8 +247,8 @@ export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { 
   };
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
+      <Header onBack={onBack} title={t('me')} />
       <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
-        <TopBar onBack={onBack} title={t('me')} />
         <Tag color={me.color} style={{ gap: 8 }}>
           <View style={s.row}>
             <Mono>{t('myTag')}</Mono>
@@ -599,8 +599,7 @@ export function Thread({
 
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
-      <View style={pad}>
-        <TopBar
+      <Header
           onBack={onBack}
           title={`${person.name} · ${metaOf(person)}`}
           right={
@@ -608,8 +607,7 @@ export function Thread({
               <Mono>{t('more')}</Mono>
             </Pressable>
           }
-        />
-      </View>
+      />
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
@@ -712,8 +710,9 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
 
   if (photo)
     return (
+      <View style={{ flex: 1 }}>
+      <Header onBack={() => setPhoto(null)} title={t('fromPhoto')} />
       <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
-        <TopBar onBack={() => setPhoto(null)} title={t('fromPhoto')} />
         <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-end' }}>
           <Image source={{ uri: photo.uri }} accessibilityLabel={t('yourPhoto')} style={{ width: 104, height: 132, borderRadius: 18, borderWidth: 2, borderColor: C.ink, transform: [{ rotate: '-3deg' }] }} />
           <Say style={{ flex: 1 }}>{t('whoseTag')}</Say>
@@ -727,6 +726,7 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
         ))}
         <Btn secondary label={t('notIt')} onPress={() => setPhoto(null)} />
       </ScrollView>
+      </View>
     );
 
   return (
@@ -783,8 +783,8 @@ export function Detail({ person, result, onBack, onPin }: { person: Person | nul
   })?.why;
   return (
     <View style={{ flex: 1 }}>
+      <Header onBack={onBack} title={person ? t('forPick', { name: person.name }) : t('myPick')} />
       <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: 16 }]}>
-        <TopBar onBack={onBack} title={person ? t('forPick', { name: person.name }) : t('myPick')} />
         <ProductPopup
           items={[top, ...result.alternatives]}
           start={popup}
