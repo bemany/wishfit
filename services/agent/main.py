@@ -23,7 +23,9 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 import admin
 import amazon
 import auth
+import costs
 import idealo
+import price_source
 import profiles
 import push
 import storage
@@ -637,6 +639,7 @@ def call_model(step: str, messages: list[dict], schema: type[BaseModel], trace: 
             },
         }
         trace["model_calls"].append(call)
+        costs.record_model_call(call)
         print(json.dumps({"event": "model_call", **call}, ensure_ascii=False), flush=True)
         try:
             return schema.model_validate_json(output), model
