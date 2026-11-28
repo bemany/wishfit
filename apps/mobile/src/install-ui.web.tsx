@@ -166,7 +166,11 @@ export function InstallBanner({ open, onClose, onOpenSheet }: { open: boolean; o
   if (!open || mode === 'none' || mode === 'other' || mode === 'ios-old' || mode === 'android-inapp') return null;
   const go = () => {
     if (mode !== 'prompt') return onOpenSheet();
-    promptInstall().then((ok) => ok && onClose());
+    // accepted or declined, the banner is done; a decline keeps it away for 7 days
+    promptInstall().then((ok) => {
+      if (!ok) snoozeInstall();
+      onClose();
+    });
   };
   return (
     <View accessibilityRole="alert" style={{ backgroundColor: C.lemon, borderBottomWidth: 2, borderColor: C.ink, paddingTop: insets.top + 8, paddingBottom: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
