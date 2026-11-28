@@ -92,9 +92,15 @@ def _run_on(token: str, actor: str, run_input: dict, memory: int, max_charge: fl
         items = r.json()
         # the run's usage lags behind the last charged events by a moment
         final = http.get(f"{API}/actor-runs/{run['id']}").json()["data"]
-        if (final.get("usageTotalUsd") or 0) < 0.002 and time.monotonic() < deadline - 3:
+        for _ in range(3):  # charged events land a moment after the run ends: wait until the figure is stable
+            if time.monotonic() > deadline - 3:
+                break
             time.sleep(2)
-            final = http.get(f"{API}/actor-runs/{run['id']}").json()["data"]
+            again = http.get(f"{API}/actor-runs/{run['id']}").json()["data"]
+            stable = (again.get("usageTotalUsd") or 0) == (final.get("usageTotalUsd") or 0)
+            final = again
+            if stable and (final.get("usageTotalUsd") or 0) > 0:
+                break
     return items if isinstance(items, list) else [], final
 
 
@@ -221,6 +227,8 @@ def get_product_offers(arguments: dict, timeout: float) -> list[dict]:
 
 
 def get_product_price_history(arguments: dict, timeout: float) -> dict | None:
+    if not os.environ.get("APIFY_HISTORY"):
+        return None  # a history run takes ~90 s and costs more than the search: off unless APIFY_HISTORY=1 (daily cron or batch use)
     ref = str(arguments["productRef"])
     hit = _cached(ref)
     run_input = {"productUrls": [hit["url"]]} if hit and hit.get("url") else {"productIds": [ref]}
