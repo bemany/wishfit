@@ -20,8 +20,7 @@ IMPERSONATION_TTL = timedelta(minutes=30)  # fixed, never extended
 RUN_CRON: Callable[[], dict] | None = None  # set by main (needs the price lookup)
 
 
-def admin_emails() -> set[str]:
-    return {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+admin_emails = auth.admin_emails  # one list for the admin API and the impersonation guard
 
 
 def current_admin(user: dict = Depends(auth.current_user)) -> dict:

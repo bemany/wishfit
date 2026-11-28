@@ -60,15 +60,25 @@ def optional_user(request: Request) -> dict | None:
     return user
 
 
+def admin_emails() -> set[str]:
+    return {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+
+
 def _guard_impersonation(request: Request, user: dict) -> None:
     """An impersonation session may not reach the admin API (except ending itself), delete the account or register
     devices; every other write is logged with method and path only (no body, no token)."""
     method, path = request.method, request.url.path.rstrip("/") or "/"
     if method == "DELETE" and path == "/admin/impersonate":
         return
-    if path.startswith("/admin") or (method == "DELETE" and path == "/me") or (method == "POST" and path == "/me/devices"):
+    if path.startswith("/admin") or (method == "DELETE" and path == "/me") or path.startswith("/me/devices"):
         raise HTTPException(403, "not allowed while viewing as a user")
+    # the admin behind the session must still be an admin (a removed admin loses running sessions at once)
+    admin = db.get_user(user["_imp"])
+    if admin is None or admin["email"].lower() not in admin_emails():
+        db.delete_session(_token_hash(_bearer(request)))
+        raise HTTPException(401, "impersonation ended")
     if method not in ("GET", "HEAD", "OPTIONS"):
+        # fail closed: a write under impersonation that cannot be logged does not happen
         db.add_audit(user["_imp"], "write", user["id"], {"method": method, "path": path[:200]})
 
 
@@ -152,7 +162,7 @@ class LogoutBody(BaseModel):
 @router.post("/auth/logout", status_code=204)
 def logout(request: Request, body: LogoutBody | None = None, user: dict = Depends(current_user)) -> Response:
     # the app's push device goes in the same call, so a sign-out never leaves it registered
-    if body and body.device_token:
+    if body and body.device_token and not user.get("_imp"):  # viewing as a user never touches the user's devices
         db.remove_device(body.device_token.strip().lower()[:200], user["id"])
     db.delete_session(_token_hash(_bearer(request)))
     return Response(status_code=204)

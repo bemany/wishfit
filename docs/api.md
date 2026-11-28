@@ -158,7 +158,7 @@ Admin = signed-in user whose e-mail is in `ADMIN_EMAILS` (comma-separated, case-
 
 - Impersonation session: its own token (hash only in the database), exactly 30 minutes, never extended. `GET /me` adds `impersonated_by_email`.
   With it these answer 403: all `/admin/*` except `DELETE /admin/impersonate`, `DELETE /me`, `POST /me/devices`.
-- Audit actions: `impersonate_start`, `impersonate_end`, `push_test`, `cron_run`, and `write` for every non-GET call made with an impersonation session (`detail {method, path}`, never a body or token).
+- Audit actions: `impersonate_start`, `impersonate_end`, `push_test`, `cron_run`, and `write` for every non-GET call made with an impersonation session on a signed-in endpoint (`detail {method, path}`, never a body or token; the public `/wishlist/import` and `/wishes/price` are not logged). Fail-closed: if the audit cannot be written, the write is refused (500). An impersonation session can neither touch the user's push devices (`/me/devices*` 403, `device_token` on logout ignored) nor outlive its admin: if the admin is no longer in `ADMIN_EMAILS`, the session ends (401).
 - `source` = `utm_source`, else `referral` (has an inviter), else `direct`.
 - `POST /auth/verify` takes an optional `attribution` object. Only for a new account (`created: true`); known keys `utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer, landing, platform` (strings, max 200 characters each, rest ignored) go to `signup_source`; `ref` = a profile slug, resolved to the inviter (an unknown or ended slug gives no inviter; one cannot invite oneself).
 - Env: `ADMIN_EMAILS`.

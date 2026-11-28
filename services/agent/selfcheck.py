@@ -815,6 +815,10 @@ assert api.post("/admin/push-test", json={"user_id": usr_id}, headers=imp_h).sta
 assert api.post("/admin/cron", headers=imp_h).status_code == 403
 assert api.delete("/me", headers=imp_h).status_code == 403
 assert api.post("/me/devices", json={"token": "d" * 64, "platform": "ios"}, headers=imp_h).status_code == 403
+# the user's push devices stay out of reach: no delete, and a device_token on logout is ignored
+assert api.delete(f"/me/devices/{TOK_A}", headers=imp_h).status_code == 403
+imp_lo = api.post("/admin/impersonate", json={"user_id": usr_id}, headers=adm_h).json()
+assert api.post("/auth/logout", json={"device_token": TOK_A}, headers={"Authorization": f"Bearer {imp_lo['token']}"}).status_code == 204
 assert db.devices_of(usr_id) == [TOK_A] and db.get_user(usr_id)
 # other writes go through and are audited with method and path only
 assert api.put("/me/settings", json={"language": "en"}, headers=imp_h).status_code == 200
@@ -831,6 +835,13 @@ db.now = lambda: real_now() + timedelta(minutes=31)
 assert api.get("/me", headers=imp_h).status_code == 401
 assert api.get("/me", headers=usr_h).status_code == 200 and api.get("/admin/me", headers=adm_h).status_code == 200
 db.now = real_now
+# an admin taken off ADMIN_EMAILS loses running impersonation sessions at once
+imp3 = api.post("/admin/impersonate", json={"user_id": usr_id}, headers=adm_h).json()
+saved_admins = os.environ["ADMIN_EMAILS"]
+os.environ["ADMIN_EMAILS"] = "x@y.de"
+assert api.get("/me", headers={"Authorization": f"Bearer {imp3['token']}"}).status_code == 401
+os.environ["ADMIN_EMAILS"] = saved_admins
+assert api.get("/me", headers={"Authorization": f"Bearer {imp3['token']}"}).status_code == 401
 # explicit end: 204, token dead, audited
 imp2 = api.post("/admin/impersonate", json={"user_id": usr_id}, headers=adm_h).json()
 imp2_h = {"Authorization": f"Bearer {imp2['token']}"}
@@ -840,7 +851,7 @@ assert api.get("/admin/me", headers=adm_h).status_code == 200
 # audit: start/end/writes/push/cron, no tokens or bodies anywhere
 ent = api.get("/admin/audit", headers=adm_h).json()["entries"]
 acts = [e["action"] for e in ent]
-assert acts.count("impersonate_start") == 2 and acts.count("impersonate_end") == 1 and "push_test" in acts and "cron_run" in acts, acts
+assert acts.count("impersonate_start") == 4 and acts.count("impersonate_end") == 1 and "push_test" in acts and "cron_run" in acts, acts
 writes = [e for e in ent if e["action"] == "write"]
 assert {(w["detail"]["method"], w["detail"]["path"]) for w in writes} >= {("PUT", "/me/settings"), ("PUT", "/me/data")}, writes
 assert all(e["admin_email"] == adm_mail for e in ent) and all(w["target_user_id"] == usr_id for w in writes)
