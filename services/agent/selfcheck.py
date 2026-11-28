@@ -925,7 +925,7 @@ _item = {"productId": 111, "title": "Mühle X", "price": 50.0, "url": "https://w
 _runs = []
 
 
-def _fake_run_on(token, actor, run_input, memory, max_charge, max_items, deadline):
+def _fake_run_on(token, actor, run_input, memory, max_charge, max_items, deadline, box=None):
     _runs.append((token, actor))
     if token == "tokA" and len(_runs) == 1:
         raise apify._OutOfCredit(402)
@@ -977,5 +977,71 @@ _cj = _c.json()
 assert _cj["totals"]["today"]["usd"] > 0 and {"model", "apify", "resend"} <= set(_cj["totals"]["30d"]["by_source"]), _cj["totals"]
 assert _cj["apify_accounts"] == [] and all({"day", "source", "usd", "units"} <= set(d) for d in _cj["daily"])
 print("apify   ok: mapping, rotation on 402, costs recorded, /admin/costs")
+
+# review round: no token in URLs, daily budget, failed run still booked, bad MODEL_PRICES, mapping hardening
+import inspect as _insp
+assert "?token=" not in _insp.getsource(apify) and 'params={"token"' not in _insp.getsource(apify)
+os.environ["APIFY_TOKENS"] = "tokA"
+_seen = {}
+_orig_get = apify.httpx.get
+apify.httpx.get = lambda url, **k: _seen.update(url=url, k=k) or SimpleNamespace(status_code=200, raise_for_status=lambda: None, json=lambda: {"data": {"limits": {"maxMonthlyUsageUsd": 5}, "current": {"monthlyUsageUsd": 4.5}}})
+_acc = apify.accounts_status()
+apify.httpx.get = _orig_get
+assert "token" not in _seen["url"] and _seen["k"]["headers"]["Authorization"] == "Bearer tokA" and "params" not in _seen["k"]
+assert _acc == [{"account": "Konto 1", "remaining_usd": 0.5, "used_usd": 4.5, "limit_usd": 5}]
+# failed run (timeout after the run started) is booked with its usage
+_n = len(_db._costs)
+
+
+def _boom(token, actor, run_input, memory, max_charge, max_items, deadline, box=None):
+    box["run_id"] = "run1"
+    raise apify.ApifyError("actor run timed out")
+
+
+apify._run_on = _boom
+apify._settle = lambda token, run_id: {"usageTotalUsd": 0.02, "chargedEventCounts": {"apify-actor-start": 1}}
+try:
+    apify.search_products({"query": "x", "filters": {}}, 5)
+    raise AssertionError("expected ApifyError")
+except apify.ApifyError:
+    pass
+assert _db._costs[_n]["usd"] == 0.02 and _db._costs[_n]["detail"]["outcome"] == "failed"
+# daily budget: spend >= APIFY_DAILY_USD -> no run, wishes/price gives null, cron keeps snapshots
+_runs.clear()
+apify._run_on = _fake_run_on
+os.environ["APIFY_DAILY_USD"] = "0.02"
+assert _db.apify_spend_today() >= 0.02
+try:
+    apify.search_products({"query": "x", "filters": {}}, 5)
+    raise AssertionError("expected budget error")
+except apify.ApifyError as _e:
+    assert "daily budget" in str(_e) and not _runs
+os.environ["PRICE_SOURCE"] = "apify"
+main._price_cache.clear()
+_pr = api.post("/wishes/price", json={"wishes": [{"title": "budgetfrei nichts"}]}, headers=price_ip)
+assert _pr.status_code == 200 and _pr.json() == {"prices": [None]}, _pr.text
+try:
+    main.price_for(None, "budgetfrei nichts", strict=True)
+    raise AssertionError("expected PriceUnavailable")
+except push.PriceUnavailable:
+    pass
+os.environ["APIFY_DAILY_USD"] = "1000"
+os.environ.pop("PRICE_SOURCE"); os.environ.pop("APIFY_TOKENS"); os.environ.pop("APIFY_DAILY_USD")
+# bad MODEL_PRICES must not break recording
+os.environ["MODEL_PRICES"] = '{"m": ["x"]}'
+costs.record_model_call({"model": "m", "usage": {"prompt_tokens": 1}, "input": [], "output": ""})
+os.environ["MODEL_PRICES"] = "[1"
+costs.record_model_call({"model": "m", "usage": {}, "input": [], "output": ""})
+os.environ.pop("MODEL_PRICES")
+# mapping: no productId dropped, urls http(s) only, keys encoded, availability from fields else None
+apify._run_on = lambda *a, **k: ([{"title": "ohne id", "price": 5}, {**_item, "url": "javascript:x", "imageUrl": "ftp://x",
+    "offers": [{"shopName": "S", "price": 1, "offerKey": "a&b", "shopId": "1 2"}]}], {"usageTotalUsd": 0})
+os.environ["APIFY_TOKENS"] = "tokA"
+_h2 = apify.search_products({"query": "q", "filters": {}}, 5)
+assert len(_h2) == 1 and _h2[0]["product_url"] is None and _h2[0]["image_url"] is None and _h2[0]["in_stock"] is None
+assert "offerKey=a%26b" in apify.get_product_offers({"productRef": "111"}, 1)[0]["offer_url"] and "sid=1%202" in apify.get_product_offers({"productRef": "111"}, 1)[0]["offer_url"]
+assert apify._in_stock({"availability": "Nicht verfügbar"}) is False and apify._in_stock({"inStock": True}) is True
+os.environ.pop("APIFY_TOKENS")
+print("review  ok: header auth, daily budget, failed runs booked, safe model costs, mapping")
 
 print("ALL CHECKS PASSED")

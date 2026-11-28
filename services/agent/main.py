@@ -443,7 +443,7 @@ def price_for(session: str | None, title: str, deadline: float | None = None, st
     return {
         "price_eur": price,
         "offer_count": count if isinstance(count, int) else 1,
-        "in_stock": True,  # the search ran with availableOnly
+        "in_stock": hit["in_stock"] if "in_stock" in hit else True,  # idealo: the search ran with availableOnly; apify: from the actor, else unknown
         "trend": _trend(change),
         "change_percent": change,
         "url": hit.get("product_url"),

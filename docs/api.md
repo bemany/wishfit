@@ -169,3 +169,4 @@ Admin = signed-in user whose e-mail is in `ADMIN_EMAILS` (comma-separated, case-
 
 ## Price source
 `PRICE_SOURCE=idealo` (default, idealo MCP) or `apify` (test backend: actors `memo23/idealo-scraper` for search + shop offers, `ahmed_jasarevic/idealo-scraper` for price history, only with `APIFY_HISTORY=1`). Tokens in `APIFY_TOKENS` (comma separated, round-robin, next account on 402/403/429). Trace entries of `/recommend` carry `source: "apify"`. The response format does not change.
+Daily budget: `APIFY_DAILY_USD` (default 0.50, UTC day, summed from `cost_events`). Once reached, no actor runs start: `/wishes/price` returns null prices, `/recommend` answers without live data, and the daily cron leaves all snapshots untouched. Failed, timed-out or aborted runs are booked with their usage. Known limits: the offer cache is per instance, and cost events of the daily check are not tied to a user.

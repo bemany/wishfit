@@ -858,3 +858,17 @@ def costs_report(days: int) -> dict:
             " where c.at >= %s and c.user_id is not null group by 1, 2 order by 3 desc limit 50", (user_since,)).fetchall()
     return {"daily": [{"day": r[0].isoformat(), "source": r[1], "usd": float(r[2]), "units": int(r[3])} for r in d],
             "by_user": [{"user_id": str(r[0]), "email": r[1], "usd": float(r[2])} for r in u]}
+
+
+def apify_spend_today() -> float:
+    """Apify cost booked since 00:00 UTC; a failing read counts as 0 (the account limit still protects)."""
+    start = now().replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        if not use_postgres():
+            with _mem_lock:
+                return sum(c["usd"] for c in _costs if c["source"] == "apify" and c["at"] >= start)
+        with connect() as conn:
+            row = conn.execute("select coalesce(sum(usd), 0) from cost_events where source = 'apify' and at >= %s", (start,)).fetchone()
+        return float(row[0])
+    except Exception:
+        return 0.0

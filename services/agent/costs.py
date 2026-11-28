@@ -72,6 +72,9 @@ def model_cost(model: str, usage: dict, input_text: str, output_text: str) -> tu
 
 
 def record_model_call(call: dict) -> None:
-    text = json.dumps(call.get("input"), ensure_ascii=False, default=str)
-    usd, tokens, detail = model_cost(call["model"], call.get("usage") or {}, text, call.get("output") or "")
-    record("model", call.get("step") or "call", usd, tokens, {**detail, "step": call.get("step")})
+    try:  # bookkeeping must never break the request (bad MODEL_PRICES, odd usage)
+        text = json.dumps(call.get("input"), ensure_ascii=False, default=str)
+        usd, tokens, detail = model_cost(call["model"], call.get("usage") or {}, text, call.get("output") or "")
+        record("model", call.get("step") or "call", usd, tokens, {**detail, "step": call.get("step")})
+    except Exception as exc:
+        log.warning("model cost not recorded: %s", type(exc).__name__)

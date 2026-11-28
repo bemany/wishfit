@@ -5,6 +5,7 @@ Output is mapped to the same internal fields the idealo MCP path produces. Accou
 Tokens are never logged or returned; accounts are only ever called "Konto 1..n"."""
 
 import itertools
+from urllib.parse import quote
 import os
 import threading
 import time
@@ -12,6 +13,7 @@ import time
 import httpx
 
 import costs
+import db
 
 API = "https://api.apify.com/v2"
 SEARCH_ACTOR = "memo23~idealo-scraper"
@@ -22,6 +24,8 @@ HISTORY_MEMORY_MB = 2048  # the actor needs 2 GB for its browser fallback
 SEARCH_MAX_CHARGE_USD = 0.10
 HISTORY_MAX_CHARGE_USD = 0.25  # price history is charged per data point
 OFFER_CACHE_TTL_S = 30 * 60
+CREDIT_MESSAGES = ("monthly usage", "usage limit", "not enough credit", "insufficient", "payment required")  # clear limit errors only
+DAILY_USD_DEFAULT = 0.50
 
 _rr = itertools.count()
 _rr_lock = threading.Lock()
@@ -65,7 +69,7 @@ def _check(r: httpx.Response) -> None:
         raise ApifyError(f"apify returned {r.status_code}")
 
 
-def _run_on(token: str, actor: str, run_input: dict, memory: int, max_charge: float, max_items: int, deadline: float) -> tuple[list[dict], dict]:
+def _run_on(token: str, actor: str, run_input: dict, memory: int, max_charge: float, max_items: int, deadline: float, box: dict | None = None) -> tuple[list[dict], dict]:
     left = deadline - time.monotonic()
     if left < 3:
         raise ApifyError("no time left")
@@ -74,6 +78,8 @@ def _run_on(token: str, actor: str, run_input: dict, memory: int, max_charge: fl
             "timeout": int(left), "memory": memory, "maxTotalChargeUsd": max_charge, "waitForFinish": int(min(55, left))})
         _check(r)
         run = r.json()["data"]
+        if box is not None:
+            box["run_id"] = run["id"]
         while run["status"] in ("READY", "RUNNING"):
             left = deadline - time.monotonic()
             if left < 1:
@@ -84,7 +90,7 @@ def _run_on(token: str, actor: str, run_input: dict, memory: int, max_charge: fl
             run = r.json()["data"]
         if run["status"] != "SUCCEEDED":
             message = (run.get("statusMessage") or "").lower()
-            if any(w in message for w in ("limit", "credit", "usage")):
+            if any(w in message for w in CREDIT_MESSAGES):
                 raise _OutOfCredit(message[:60])
             raise ApifyError(f"actor run {run['status'].lower()}")
         r = http.get(f"{API}/datasets/{run['defaultDatasetId']}/items", params={"limit": max_items, "clean": 1})
@@ -104,23 +110,53 @@ def _run_on(token: str, actor: str, run_input: dict, memory: int, max_charge: fl
     return items if isinstance(items, list) else [], final
 
 
+def daily_budget_usd() -> float:
+    try:
+        return float(os.environ.get("APIFY_DAILY_USD") or DAILY_USD_DEFAULT)
+    except ValueError:
+        return DAILY_USD_DEFAULT
+
+
+def _settle(token: str, run_id: str) -> dict:
+    """Usage of a run that did not finish normally (timeout, abort, failure): read once, after a short wait."""
+    time.sleep(2)
+    try:
+        r = httpx.get(f"{API}/actor-runs/{run_id}", headers=_auth(token), timeout=8)
+        return r.json()["data"] if r.status_code < 400 else {}
+    except Exception:
+        return {}
+
+
 def run_actor(actor: str, run_input: dict, *, memory: int, max_charge: float, max_items: int, timeout_s: float, kind: str) -> list[dict]:
-    """Run an actor on the next account that still has credit; records the run's cost. Raises ApifyError."""
+    """Run an actor on the next account that still has credit; records the run's cost (also for failed or aborted
+    runs). Raises ApifyError, also when today's budget (APIFY_DAILY_USD, UTC day) is used up."""
+    if db.apify_spend_today() >= daily_budget_usd():
+        raise ApifyError("apify daily budget used up")
     deadline = time.monotonic() + timeout_s
     exhausted = 0
-    accounts = _accounts()
-    for idx, token in accounts:
+    for idx, token in _accounts():
         started = time.monotonic()
+        box: dict = {}
+
+        def book(run: dict, items: int, outcome: str) -> None:
+            costs.record("apify", kind, run.get("usageTotalUsd") or 0, 1, {
+                "actor": actor.replace("~", "/"), "account": f"Konto {idx + 1}", "items": items, "outcome": outcome,
+                "events": run.get("chargedEventCounts"), "duration_s": round(time.monotonic() - started, 1)})
+
         try:
-            items, run = _run_on(token, actor, run_input, memory, max_charge, max_items, deadline)
+            items, run = _run_on(token, actor, run_input, memory, max_charge, max_items, deadline, box)
         except _OutOfCredit:
+            if box.get("run_id"):
+                book(_settle(token, box["run_id"]), 0, "credit")
             exhausted += 1
             continue
-        except httpx.HTTPError as exc:
-            raise ApifyError(f"apify unreachable: {type(exc).__name__}") from exc
-        costs.record("apify", kind, run.get("usageTotalUsd") or 0, 1, {
-            "actor": actor.replace("~", "/"), "account": f"Konto {idx + 1}", "items": len(items),
-            "events": run.get("chargedEventCounts"), "duration_s": round(time.monotonic() - started, 1)})
+        except Exception as exc:  # timeout, abort, failed run, network: the run may still have been charged
+            if box.get("run_id"):
+                book(_settle(token, box["run_id"]), 0, "failed")
+            if isinstance(exc, httpx.HTTPError):
+                raise ApifyError(f"apify unreachable: {type(exc).__name__}") from exc
+            raise
+        book(run, len(items), "ok")
         return items
     raise ApifyError(f"all {exhausted} apify accounts are out of credit")
 
@@ -138,7 +174,7 @@ def _offers_from(item: dict) -> list[dict]:
         price, total = _num(o.get("price")), _num(o.get("totalPrice"))
         base = price if price is not None else total
         shipping = round(total - price, 2) if price is not None and total is not None else None
-        key, sid = o.get("offerKey"), o.get("shopId")
+        key, sid = quote(str(o.get("offerKey") or ""), safe=""), quote(str(o.get("shopId") or ""), safe="")
         out.append({
             "merchant": o.get("shopName"),
             "price_eur": base,
@@ -146,9 +182,26 @@ def _offers_from(item: dict) -> list[dict]:
             "delivery_estimate": o.get("deliveryTime"),
             "delivery_status": None,
             "free_return_days": None,
-            "offer_url": f"https://www.idealo.de/relocator/relocate?offerKey={key}&price={base}&sid={sid}&type=offer&pos={i + 1}" if key and base is not None else None,
+            "offer_url": f"https://www.idealo.de/relocator/relocate?offerKey={key}&price={base}&sid={sid}&type=offer&pos={i + 1}" if o.get("offerKey") and base is not None else None,
         })
     return out
+
+
+def _http(url) -> str | None:
+    return url if isinstance(url, str) and url.lower().startswith(("http://", "https://")) else None
+
+
+def _in_stock(item: dict) -> bool | None:
+    """From the actor's availability fields; None when it says nothing."""
+    for k in ("inStock", "available", "isAvailable"):
+        if isinstance(item.get(k), bool):
+            return item[k]
+    text = str(item.get("availability") or "").lower()
+    if not text:
+        return None
+    if any(w in text for w in ("out of stock", "outofstock", "nicht verfügbar", "ausverkauft", "nicht lieferbar")):
+        return False
+    return True if any(w in text for w in ("instock", "in stock", "verfügbar", "lieferbar", "available")) else None
 
 
 def _match_from(item: dict) -> dict:
@@ -156,8 +209,9 @@ def _match_from(item: dict) -> dict:
         "productRef": str(item.get("productId")),
         "product_name": item.get("title"),
         "price_eur": _num(item.get("price")),
-        "product_url": item.get("url"),
-        "image_url": item.get("imageUrl"),
+        "product_url": _http(item.get("url")),
+        "image_url": _http(item.get("imageUrl")),
+        "in_stock": _in_stock(item),
         "user_rating": item.get("rating"),
         "test_grade": item.get("testRating"),
         "offer_count": item.get("offerCount"),
@@ -213,6 +267,8 @@ def search_products(arguments: dict, timeout: float) -> list[dict]:
                       max_items=SEARCH_HITS, timeout_s=timeout, kind="search")
     matches = []
     for item in items[:SEARCH_HITS]:
+        if not item.get("productId"):
+            continue
         m = _match_from(item)
         if m["price_eur"] is None or (max_price and m["price_eur"] > max_price):
             continue
@@ -252,7 +308,7 @@ def accounts_status() -> list[dict]:
     for i, token in enumerate(tokens()):
         entry = {"account": f"Konto {i + 1}", "remaining_usd": None, "used_usd": None, "limit_usd": None}
         try:
-            r = httpx.get(f"{API}/users/me/limits", params={"token": token}, timeout=10)
+            r = httpx.get(f"{API}/users/me/limits", headers=_auth(token), timeout=10)
             r.raise_for_status()
             d = r.json()["data"]
             limit, used = d["limits"]["maxMonthlyUsageUsd"], d["current"]["monthlyUsageUsd"]
