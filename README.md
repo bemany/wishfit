@@ -110,7 +110,7 @@ Built by team Unexpected at the Agentic Hackathon Berlin:
 - Esref Yalcinkaya ([@bemany](https://github.com/bemany))
 - Florian Herzog
 - Haoran Wang ([@RyanWang-star](https://github.com/RyanWang-star))
-- Enes Avanoglu
+- Enes Avanoglu ([@Eneso3o](https://github.com/Eneso3o))
 
 ## Notes
 
