@@ -175,6 +175,10 @@ def _offers_from(item: dict) -> list[dict]:
         base = price if price is not None else total
         shipping = round(total - price, 2) if price is not None and total is not None else None
         key, sid = quote(str(o.get("offerKey") or ""), safe=""), quote(str(o.get("shopId") or ""), safe="")
+        # idealo's own links carry the price with two decimals ("122.30"), as the actor's leadoutUrl does
+        link = f"https://www.idealo.de/relocator/relocate?offerKey={key}&price={base:.2f}&sid={sid}&type=offer&pos={i + 1}" if o.get("offerKey") and base is not None else None
+        if _http(item.get("leadoutUrl")) and o.get("offerKey") and str(o["offerKey"]) in item["leadoutUrl"]:
+            link = item["leadoutUrl"]  # the actor's own link for this offer, unchanged
         out.append({
             "merchant": o.get("shopName"),
             "price_eur": base,
@@ -182,7 +186,7 @@ def _offers_from(item: dict) -> list[dict]:
             "delivery_estimate": o.get("deliveryTime"),
             "delivery_status": None,
             "free_return_days": None,
-            "offer_url": f"https://www.idealo.de/relocator/relocate?offerKey={key}&price={base}&sid={sid}&type=offer&pos={i + 1}" if o.get("offerKey") and base is not None else None,
+            "offer_url": link,
         })
     return out
 
