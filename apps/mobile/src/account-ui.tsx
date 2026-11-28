@@ -69,7 +69,7 @@ export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account:
             <>
               <Body>{t('signInBody')}</Body>
               <TextInput accessibilityLabel={t('email')} value={email} onChangeText={setEmail} onSubmitEditing={sendCode} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="emailAddress" autoComplete="email" returnKeyType="send" placeholder="you@example.com" placeholderTextColor={C.mute} style={field} />
-              <Btn label={t('sendCode')} disabled={busy || !email.includes('@')} onPress={sendCode} />
+              <Btn label={t('sendCode')} loading={busy} disabled={!email.includes('@')} onPress={sendCode} />
             </>
           ) : (
             <>
@@ -92,7 +92,7 @@ export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account:
                 placeholderTextColor={C.mute}
                 style={field}
               />
-              <Btn label={t('signIn')} disabled={busy || code.length !== 6} onPress={() => confirm()} />
+              <Btn label={t('signIn')} loading={busy} disabled={code.length !== 6} onPress={() => confirm()} />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 <Pill label={t('sendAgain')} onPress={busy ? undefined : sendCode} />
                 <Pill
@@ -107,7 +107,7 @@ export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account:
             </>
           )}
           {note && <Mono style={{ color: C.ink }}>{note}</Mono>}
-          {step === 'code' && lost && <Btn label={t('newCode')} disabled={busy} onPress={sendCode} />}
+          {step === 'code' && lost && <Btn label={t('newCode')} loading={busy} onPress={sendCode} />}
         </Tag>
         <Mono mute style={{ textAlign: 'center' }}>
           {t('signInHint')}
@@ -119,18 +119,18 @@ export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account:
 
 // Account block on the Me screen: who is signed in, the sync state, sign out and delete
 export function AccountPanel({ account }: { account: Account }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'out' | 'delete' | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  const run = async (fn: () => Promise<void>, fallback: string) => {
-    setBusy(true);
+  const run = async (fn: () => Promise<void>, fallback: string, what: 'out' | 'delete' = 'out') => {
+    setBusy(what);
     setNote(null);
     try {
       await fn();
     } catch (e) {
       setNote(explain(e, fallback));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -154,7 +154,7 @@ export function AccountPanel({ account }: { account: Account }) {
     }, t('cantSignOut'));
 
   const askDelete = () => {
-    const del = () => run(account.deleteAccount, t('cantDelete'));
+    const del = () => run(account.deleteAccount, t('cantDelete'), 'delete');
     const text = t('deleteText');
     if (Platform.OS === 'web') {
       if (window.confirm(text)) del();
@@ -174,8 +174,8 @@ export function AccountPanel({ account }: { account: Account }) {
       <Mono mute>{account.syncError ?? (account.syncing ? t('syncing') : t('synced'))}</Mono>
       {account.notStored && <Mono mute>{t('notStored')}</Mono>}
       {note && <Mono style={{ color: C.tomato }}>{note}</Mono>}
-      <Btn label={t('signOut')} secondary disabled={busy} onPress={signOut} />
-      <Btn label={t('deleteAccount')} secondary disabled={busy} onPress={askDelete} />
+      <Btn label={t('signOut')} secondary loading={busy === 'out'} disabled={busy === 'delete'} onPress={signOut} />
+      <Btn label={t('deleteAccount')} secondary loading={busy === 'delete'} disabled={busy === 'out'} onPress={askDelete} />
     </View>
   );
 }

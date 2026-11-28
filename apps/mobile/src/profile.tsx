@@ -272,7 +272,7 @@ export function SharePanel({ me, account, onChange }: { me: Me; account: Account
         </View>
       ) : (
         <>
-          <Btn label={t('sendTag')} disabled={busy} onPress={share} />
+          <Btn label={t('sendTag')} loading={busy} onPress={share} />
           <Mono mute style={{ textAlign: 'center' }}>
             {t('sendHint')}
           </Mono>

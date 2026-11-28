@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 import { t, type Lang } from './i18n';
@@ -70,8 +70,16 @@ export const Pill = ({ label, onPress, large }: { label: string; onPress?: () =>
   </Pressable>
 );
 
-export const Btn = ({ label, onPress, secondary, disabled }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean }) => (
-  <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.btn, secondary && { backgroundColor: C.paper }, disabled && { opacity: 0.3 }]}>
+// disabled: the input is not ready (greyed out); loading: a request runs (full colour, spinner, no second tap)
+export const Btn = ({ label, onPress, secondary, disabled, loading }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean; loading?: boolean }) => (
+  <Pressable
+    accessibilityRole="button"
+    accessibilityState={{ disabled: disabled || loading, busy: loading }}
+    disabled={disabled || loading}
+    onPress={onPress}
+    style={({ pressed }) => [s.btn, { flexDirection: 'row', gap: 10 }, secondary && { backgroundColor: C.paper }, disabled && !loading && { opacity: 0.3 }, pressed && !loading && { opacity: 0.75 }]}
+  >
+    {loading && <ActivityIndicator size="small" color={secondary ? C.ink : '#fff'} />}
     <Text style={[s.btnText, secondary && { color: C.ink }]}>{label}</Text>
   </Pressable>
 );
