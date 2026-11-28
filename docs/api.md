@@ -53,6 +53,8 @@ Recommendation:
 
 Errors: `422` invalid request, `502` model or idealo failure, body `{"detail": string}`.
 
+> Fallback: with `IDEALO_FALLBACK=snapshot` the backend answers from the stored demo snapshots when live idealo fails, but only for wishes that share a word with a snapshot; the trace marks these calls `source: "snapshot"` and the agent says the data are sample data. Unrelated wishes still get `ideas_only`.
+
 ## GET /results/{id}
 
 Returns the stored response of an earlier `POST /recommend`. `404` if unknown.
