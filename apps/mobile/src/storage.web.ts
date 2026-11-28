@@ -24,6 +24,14 @@ export function writeJson(name: string, value: unknown) {
   }
 }
 
+export function deleteJson(name: string) {
+  try {
+    store().removeItem(k(name));
+  } catch {
+    // nothing to remove
+  }
+}
+
 export const readSecret = (key: string): string | null => {
   try {
     return store().getItem(k(key));

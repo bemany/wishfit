@@ -20,6 +20,15 @@ export function writeJson(name: string, value: unknown) {
   }
 }
 
+export function deleteJson(name: string) {
+  try {
+    const file = new File(Paths.document, `${name}.json`);
+    if (file.exists) file.delete();
+  } catch {
+    // nothing to remove
+  }
+}
+
 // The session token lives in the keychain
 export const readSecret = (key: string): string | null => {
   try {

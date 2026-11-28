@@ -1,6 +1,6 @@
 import { impersonation } from './impersonation';
 import { slugFromUrl } from './profile';
-import { readJson, writeJson } from './storage';
+import { deleteJson, readJson, writeJson } from './storage';
 
 // Where a new user came from, see openspec/changes/admin-console (design.md 3). First touch: the first visit's
 // UTM parameters, referrer and landing page stay in wishfit:attribution and are never overwritten; a profile
@@ -42,3 +42,6 @@ export function captureAttribution() {
 }
 
 export const attributionForVerify = (): Attribution | undefined => read() ?? undefined;
+
+// Once a new account carries it, the origin is spent; a later visit starts a fresh first touch
+export const clearAttribution = () => deleteJson('attribution');

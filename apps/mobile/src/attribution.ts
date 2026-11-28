@@ -15,6 +15,9 @@ export const noteRef = (slug: string) => {
 
 export const captureAttribution = () => {};
 
+// Once a new account carries the inviter, it is spent
+export const clearAttribution = () => writeSettings({ ref: undefined });
+
 export const attributionForVerify = (): Attribution => {
   const ref = readSettings().ref;
   return { platform: Platform.OS, ...(ref ? { ref } : {}) };
