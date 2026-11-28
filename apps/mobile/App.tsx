@@ -70,6 +70,12 @@ function Root() {
   const [people, setPeople] = useState<Person[]>(loadPeople);
   const [me, setMe] = useState<Me>(loadMe);
   const [view, setViewRaw] = useState<View_>({ name: 'people' });
+  // the long-lived effects (links, notifications) call the newest setView, not the one from the first render
+  const setViewRef = useRef<(next: View_, zoom?: boolean) => void>(() => {});
+  // a deleted person goes once the edit screen has left
+  const drafts = useRef<Record<string, string>>({});
+  const removeAfter = useRef<string | null>(null);
+  const accountRef = useRef<typeof account | null>(null);
   // every screen reads its texts through t(), so a new language re-renders them from here
   const [lang, setLang] = useState<Lang>(getLanguage);
   const [onboarded, setOnboarded] = useState(() => readSettings().onboarded === true);
@@ -86,6 +92,7 @@ function Root() {
     setPeople(next);
   };
   const account = useAccount(people, me, applyPeople, setMe, peopleRef);
+  accountRef.current = account;
   const meRef = useRef(me);
   meRef.current = me;
   // stamp: false for what the app does by itself (prices), so it never wins a sync over a real edit
@@ -197,16 +204,16 @@ function Root() {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const slug = slugFromUrl(window.location.pathname);
-    if (slug) setView({ name: 'profile', slug });
+    if (slug) setViewRef.current({ name: 'profile', slug });
   }, []);
 
   // wishloop://results/{id} opens the pick in detail. Reacts to every URL event, so reopening the same link reloads it too
   useEffect(() => {
     const open = (url?: string | null) => {
       const slug = Platform.OS === 'web' ? null : slugFromUrl(url);
-      if (slug) return setView({ name: 'profile', slug });
+      if (slug) return setViewRef.current({ name: 'profile', slug });
       const id = idFromUrl(url ?? null);
-      if (id) loadResult(id).then((result) => setView({ name: 'detail', result, id: null })).catch(() => {});
+      if (id) loadResult(id).then((result) => setViewRef.current({ name: 'detail', result, id: null })).catch(() => {});
     };
     Linking.getInitialURL().then(open);
     const sub = Linking.addEventListener('url', ({ url }) => open(url));
@@ -217,8 +224,8 @@ function Root() {
   useEffect(
     () =>
       onPushOpen(({ personId, slug }) => {
-        if (personId && peopleRef.current.some((p) => p.id === personId)) return setView({ name: 'thread', id: personId });
-        if (slug) setView({ name: 'profile', slug });
+        if (personId && peopleRef.current.some((p) => p.id === personId)) return setViewRef.current({ name: 'thread', id: personId });
+        if (slug) setViewRef.current({ name: 'profile', slug });
       }),
     [],
   );
@@ -237,7 +244,7 @@ function Root() {
     const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
     return () => sub.remove();
   }, []);
-  const keyOf = (v: View_) => v.name + ('id' in v ? (v.id ?? '') : '');
+  const keyOf = (v: View_) => v.name + ('id' in v ? (v.id ?? '') : '') + (v.name === 'profile' ? v.slug : '');
   const kindFor = (v: View_, zoom?: boolean): Kind => (reduce ? 'fade' : zoom ? 'zoom' : 'slide');
   // forward: the new screen comes in over the current one
   const setView = (next: View_, zoom = false) => {
@@ -247,15 +254,25 @@ function Root() {
     setTr({ under: viewRef.current, n: ++trN.current, dir: 'in' });
     setViewRaw(next);
   };
+  setViewRef.current = setView;
+  const flushRemove = () => {
+    const id = removeAfter.current;
+    removeAfter.current = null;
+    if (id) accountRef.current?.removePerson(id);
+  };
   const done = (n: number, to?: View_) => {
     if (trN.current !== n) return;
     if (to) setViewRaw(to);
     p.value = 1;
     setTr(null);
+    flushRemove();
   };
   // back: the current screen leaves, the target is shown below it and then becomes the screen
   const pop = (target: View_) => {
-    if (!onboarded) return setViewRaw(target);
+    if (!onboarded) {
+      setViewRaw(target);
+      return flushRemove();
+    }
     kindSV.value = kindFor(target, viewRef.current.name === 'add');
     setTr({ under: target, n: ++trN.current, dir: 'out' });
   };
@@ -332,7 +349,7 @@ function Root() {
             pop({ name: 'thread', id: person.id });
           }}
           onDelete={() => {
-            account.removePerson(person.id);
+            removeAfter.current = person.id;
             pop({ name: 'people' });
           }}
         />
@@ -343,6 +360,8 @@ function Root() {
           busy={busyId === person.id}
           error={error?.id === person.id ? error.text : null}
           header={person.friendSlug ? <FriendWishes person={person} gone={goneSlugs.includes(person.friendSlug)} /> : undefined}
+          draft={drafts.current[person.id]}
+          onDraft={(text) => { drafts.current[person.id] = text; }}
           onBack={goBack}
           onSend={(text) => send(person, text)}
           onSnap={() => setView({ name: 'snap', id: person.id })}
@@ -391,15 +410,15 @@ function Root() {
         />
       ) : (
         <View style={{ flex: 1 }}>
+          {/* both layers keep their key, so the screen that was below becomes the top one without remounting */}
           {tr && (
-            <>
-              <Reanimated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }, underStyle]}>
-                {renderScreen(tr.under)}
-              </Reanimated.View>
-              <Reanimated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#000' }, dimStyle]} />
-            </>
+            <Reanimated.View key={keyOf(tr.under)} pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }, underStyle]}>
+              {renderScreen(tr.under)}
+            </Reanimated.View>
           )}
+          {tr && <Reanimated.View key="dim" pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#000' }, dimStyle]} />}
           <Reanimated.View
+            key={keyOf(view)}
             pointerEvents={tr ? 'none' : 'auto'}
             style={[{ flex: 1, backgroundColor: C.paper, shadowColor: '#000', shadowOpacity: tr ? 0.15 : 0, shadowRadius: 10, shadowOffset: { width: -3, height: 0 } }, topStyle]}
           >

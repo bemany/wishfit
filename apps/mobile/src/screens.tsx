@@ -553,6 +553,8 @@ export function Thread({
   onEdit,
   onPin,
   header,
+  draft = '',
+  onDraft,
 }: {
   person: Person;
   busy: boolean;
@@ -565,10 +567,16 @@ export function Thread({
   onPin: OnPin;
   // shown above the chat, e.g. a friend's shared wishes
   header?: React.ReactNode;
+  // the unsent text outlives the screen: opening a pick and coming back keeps it
+  draft?: string;
+  onDraft?: (text: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(draft);
+  useEffect(() => {
+    onDraft?.(text);
+  }, [text]);
   const empty = person.messages.length === 0;
   const answered = !busy && !error && person.messages.at(-1)?.role === 'agent';
 
