@@ -122,7 +122,8 @@ export function InstallSheet({ open, onClose }: { open: boolean; onClose: () => 
     onClose();
   };
   const later = () => {
-    snoozeInstall();
+    // opened through the /install link, "Later" is no answer to the banner: nothing to snooze
+    if (window.location.pathname !== '/install') snoozeInstall();
     close();
   };
   return (
