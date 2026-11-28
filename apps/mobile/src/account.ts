@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { attributionForVerify } from './attribution';
 import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
 import { getLanguage, isLang, readSettings, t, writeSettings, type Lang } from './i18n';
 import { forgetPushToken, pushTokenForSignOut, registerPush, watchPush } from './push';
@@ -334,7 +335,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setDevCode(r?.dev_code ?? null);
   };
   const verify = async (email: string, code: string) => {
-    const r = await call<{ token: string; user: { email: string; language?: string | null }; created?: boolean }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim() }, false);
+    const r = await call<{ token: string; user: { email: string; language?: string | null }; created?: boolean }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim(), attribution: attributionForVerify() }, false);
     const next: Session = { token: r.token, email: r.user.email };
     reset();
     // after a lost session (401) the device still holds the last account's data: a different account starts
