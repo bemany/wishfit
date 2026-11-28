@@ -1,10 +1,15 @@
-// Same interface as storage.ts: JSON documents and one secret, in localStorage
+import { impersonation } from './impersonation';
 
-const k = (name: string) => `wishfit:${name}`;
+// Same interface as storage.ts: JSON documents and one secret, in localStorage.
+// Inside the admin simulator everything goes to sessionStorage under wishfit:imp:<userId>: instead
+// (openspec/changes/admin-console, design.md 2), so the admin's own data never changes.
+
+const k = (name: string) => (impersonation ? impersonation.prefix : 'wishfit:') + name;
+const store = (): Storage => (impersonation ? sessionStorage : localStorage);
 
 export function readJson(name: string): unknown | null {
   try {
-    const raw = localStorage.getItem(k(name));
+    const raw = store().getItem(k(name));
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -13,29 +18,37 @@ export function readJson(name: string): unknown | null {
 
 export function writeJson(name: string, value: unknown) {
   try {
-    localStorage.setItem(k(name), JSON.stringify(value));
+    store().setItem(k(name), JSON.stringify(value));
   } catch {
     // the data still works for this session
   }
 }
 
+export function deleteJson(name: string) {
+  try {
+    store().removeItem(k(name));
+  } catch {
+    // nothing to remove
+  }
+}
+
 export const readSecret = (key: string): string | null => {
   try {
-    return localStorage.getItem(k(key));
+    return store().getItem(k(key));
   } catch {
     return null;
   }
 };
 export const writeSecret = (key: string, value: string) => {
   try {
-    localStorage.setItem(k(key), value);
+    store().setItem(k(key), value);
   } catch {
     // stays signed out
   }
 };
 export const deleteSecret = (key: string): Promise<void> => {
   try {
-    localStorage.removeItem(k(key));
+    store().removeItem(k(key));
   } catch {
     // nothing to remove
   }

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { BRAND } from "@/lib/brand";
 import { HeroVideo } from "./hero-video";
+import { UtmLinks } from "./utm-links";
 
 // Static landing page in the "Gift tags" look (docs/design/gift-tags.md). The main call opens the web app (NEXT_PUBLIC_APP_URL); the older tool stays at /try.
 
@@ -60,6 +61,7 @@ export default function LandingPage() {
     <div className="gt flex flex-col gap-20 pb-6 sm:gap-28">
       {/* The landing page is always white, whatever the system theme says. */}
       <style>{`html,body{background:#fff!important;color:#0b0b0c!important}`}</style>
+      <UtmLinks />
 
       <section className="grid items-center gap-12 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="flex flex-col items-start gap-6">
@@ -72,13 +74,13 @@ export default function LandingPage() {
             in your budget, with receipts.
           </p>
           <div className="flex flex-wrap gap-3">
-            <a href={APP_URL} className={`${pill} bg-[#0b0b0c] text-white`}>
+            <a data-app-link href={APP_URL} className={`${pill} bg-[#0b0b0c] text-white`}>
               Open Wishfit
             </a>
             <a href="#film" className={`${pill} bg-white`}>
               Watch the film
             </a>
-            <a href={`${APP_URL}/install`} className={`${pill} bg-white`}>
+            <a data-app-link href={`${APP_URL}/install`} className={`${pill} bg-white`}>
               Add to home screen
             </a>
           </div>
@@ -162,7 +164,7 @@ export default function LandingPage() {
             </Tag>
           ))}
         </div>
-        <a href={APP_URL} className={`${pill} self-start bg-[#0b0b0c] text-white`}>
+        <a data-app-link href={APP_URL} className={`${pill} self-start bg-[#0b0b0c] text-white`}>
           Open Wishfit
         </a>
       </section>
@@ -223,7 +225,7 @@ export default function LandingPage() {
       <section className="flex flex-col items-start gap-6 border-t-2 border-[#0b0b0c] pt-10">
         <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">Who are you buying for?</h2>
         <div className="flex flex-wrap gap-3">
-          <a href={APP_URL} className={`${pill} bg-[#0b0b0c] text-white`}>
+          <a data-app-link href={APP_URL} className={`${pill} bg-[#0b0b0c] text-white`}>
             Open Wishfit
           </a>
           <a href="#film" className={`${pill} bg-white`}>

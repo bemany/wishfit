@@ -12,6 +12,8 @@ import { AccessibilityInfo, Dimensions, Linking, PanResponder, Platform, View } 
 import Reanimated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, type SharedValue } from 'react-native-reanimated';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AdminConsole } from './src/admin';
+import { noteRef } from './src/attribution';
 import { useAccount } from './src/account';
 import { SignIn } from './src/account-ui';
 import { getSession, idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, saveMe, savePeople, togglePin, type Me, type Person, type Product, type Result } from './src/api';
@@ -19,6 +21,8 @@ import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, frien
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
 import { installTrigger } from './src/install';
+import { ImpersonationEnded, ImpersonationStrip } from './src/admin-strip';
+import { impersonation } from './src/impersonation';
 import { InstallBanner, InstallSheet } from './src/install-ui';
 import { Onboarding } from './src/onboarding';
 import { onPushOpen } from './src/push';
@@ -33,9 +37,11 @@ export default function App() {
   // On a font error the app still renders, with the system font
   const [loaded, fontError] = useFonts({ BricolageGrotesque_800ExtraBold, InstrumentSans_400Regular, InstrumentSans_600SemiBold, InstrumentSans_700Bold, DMMono_500Medium });
   if (!loaded && !fontError) return null;
+  // the admin console lives on the web only (openspec/changes/admin-console); the native app has no /admin
+  const admin = Platform.OS === 'web' && !impersonation && /^\/admin(\/|$)/.test(window.location.pathname);
   return (
     <SafeAreaProvider>
-      <Root />
+      {admin ? <AdminConsole /> : <Root />}
     </SafeAreaProvider>
   );
 }
@@ -85,7 +91,8 @@ function Root() {
   // ponytail: one request at a time across all threads
   // the install hint: a banner after the sign-in, the sheet when asked for; /install opens the sheet at once, signed in or not
   const [installBanner, setInstallBanner] = useState(false);
-  const [installOpen, setInstallOpen] = useState(() => Platform.OS === 'web' && window.location.pathname === '/install');
+  // never in the admin simulator, which only shows the user's app
+  const [installOpen, setInstallOpen] = useState(() => Platform.OS === 'web' && !impersonation && window.location.pathname === '/install');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
 
@@ -152,7 +159,7 @@ function Root() {
     try {
       const result = await recommend(person, text, photo?.base64, friendContext(person));
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
-      if (installTrigger('recommendation')) setInstallBanner(true);
+      if (!impersonation && installTrigger('recommendation')) setInstallBanner(true);
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
       update(person.id, (p) => {
@@ -241,6 +248,8 @@ function Root() {
   useEffect(() => {
     const open = (url?: string | null) => {
       const slug = Platform.OS === 'web' ? null : slugFromUrl(url);
+      // the inviter, kept until a new account is created (web: attribution.web.ts reads the address)
+      if (slug) noteRef(slug);
       if (slug) return setViewRef.current({ name: 'profile', slug });
       const id = idFromUrl(url ?? null);
       if (id) loadResult(id).then((result) => setViewRef.current({ name: 'detail', result, id: null })).catch(() => {});
@@ -428,10 +437,14 @@ function Root() {
   };
 
   return (
-    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: installBanner && !installOpen ? 0 : insets.top + 8 }}>
+    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: (installBanner && !installOpen) || (impersonation && signedIn) ? 0 : insets.top + 8 }}>
       <StatusBar style="dark" />
+      {impersonation && signedIn && <ImpersonationStrip email={account.session?.email ?? ''} />}
       <InstallBanner open={installBanner && !installOpen} onClose={() => setInstallBanner(false)} onOpenSheet={() => setInstallOpen(true)} />
-      {!signedIn && view.name === 'profile' && !askSignIn ? (
+      {impersonation && !signedIn ? (
+        // the simulator's session ended or expired: never the sign-in, the admin's own account stays outside
+        <ImpersonationEnded />
+      ) : !signedIn && view.name === 'profile' && !askSignIn ? (
         // a shared tag without an account: the preview, before or after the onboarding
         <ProfileView
           key={view.slug}
@@ -458,7 +471,7 @@ function Root() {
             writeSettings({ onboarded: true });
             setOnboarded(true);
             // the install hint only comes once the app is usable, after the sign-in
-            if (installTrigger('onboarding')) setInstallBanner(true);
+            if (!impersonation && installTrigger('onboarding')) setInstallBanner(true);
           }}
         />
       ) : !signedIn ? (

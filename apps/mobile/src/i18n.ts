@@ -217,6 +217,10 @@ const en = {
   deleteText: 'This deletes your account with your people, your wishlist and your profile link, on the server and on this phone.',
   cantDelete: "I can't delete the account right now.",
   signInTitle: 'Sign in',
+  impViewing: 'Viewing as {email}',
+  impEnd: 'End',
+  impEnded: 'This view has ended.',
+  impEndedHint: 'Start it again from the user in the admin console.',
   signInBody: 'New here or back again: enter your e-mail and I send you a 6-digit code. No password needed.',
   signInHint: 'Your people and wishes are kept in your account, on every device.',
   codeTitle: 'Check your mail',
@@ -503,6 +507,10 @@ const de: Record<Key, string> = {
   deleteText: 'Damit löschst du dein Konto mit deinen Personen, deiner Wunschliste und deinem Profillink, auf dem Server und auf diesem Handy.',
   cantDelete: 'Ich kann das Konto gerade nicht löschen.',
   signInTitle: 'Anmelden',
+  impViewing: 'Ansicht als {email}',
+  impEnd: 'Beenden',
+  impEnded: 'Diese Ansicht ist beendet.',
+  impEndedHint: 'Starte sie in der Admin-Konsole beim Nutzer neu.',
   signInBody: 'Neu hier oder schon dabei: Gib deine E-Mail ein, ich schicke dir einen 6-stelligen Code. Ein Passwort brauchst du nicht.',
   signInHint: 'Deine Personen und Wünsche liegen in deinem Konto, auf jedem Gerät.',
   codeTitle: 'Schau in deine Mails',
@@ -596,7 +604,8 @@ export const isLang = (v: unknown): v is Lang => v === 'de' || v === 'en';
 
 // Local settings of this device; `onboarded` is not synced, so a new phone shows the onboarding again
 // owner: the e-mail of the account the people and profile on this device belong to
-type Settings = { language?: Lang; onboarded?: boolean; pushToken?: string | null; pushDone?: string | null; owner?: string | null };
+// ref: the inviter's profile slug from the first profile link (native only), sent once with the account's creation
+type Settings = { language?: Lang; onboarded?: boolean; pushToken?: string | null; pushDone?: string | null; owner?: string | null; ref?: string };
 export const readSettings = (): Settings => {
   const raw = readJson('settings') as Settings | null;
   return raw && typeof raw === 'object' ? raw : {};

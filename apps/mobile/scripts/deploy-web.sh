@@ -27,10 +27,12 @@ if grep -rqo 'assets/[^"]*node_modules' dist --include='*.js' --include='*.css' 
   exit 1
 fi
 
+# No page of the app may be framed by another site (the admin simulator frames it on the same origin only)
 cat > dist/vercel.json <<'JSON'
 {
   "rewrites": [{ "source": "/((?!_expo/|assets/|.*\\..*).*)", "destination": "/index.html" }],
   "headers": [
+    { "source": "/(.*)", "headers": [{ "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" }, { "key": "X-Frame-Options", "value": "SAMEORIGIN" }] },
     { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }, { "key": "Service-Worker-Allowed", "value": "/" }] },
     { "source": "/manifest.webmanifest", "headers": [{ "key": "Cache-Control", "value": "no-cache" }, { "key": "Content-Type", "value": "application/manifest+json" }] },
     { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
@@ -54,3 +56,5 @@ for f in $(grep -rhoE '/assets/[^"]+\.ttf' dist --include='*.js' | sort -u); do
   [ "$code" = 200 ] || { echo "font $f answers $code" >&2; exit 1; }
 done
 echo "fonts ok"
+curl -sI "$BASE/admin" | grep -qi "frame-ancestors 'self'" || { echo "frame-ancestors header missing" >&2; exit 1; }
+echo "frame headers ok"
