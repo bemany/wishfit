@@ -17,7 +17,7 @@
         "NSMotionUsageDescription": "Wishfit does not track your movement; this is required by a system library the app includes.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {

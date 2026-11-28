@@ -34,9 +34,10 @@ export function AccountPanel({ account }: { account: Account }) {
       setCode('');
       setStep('code');
     }, t('cantSendCode'));
-  const confirm = () =>
+  // the number pad has no return key and can cover the button, so six digits sign in by themselves
+  const confirm = (value = code) =>
     run(async () => {
-      await account.verify(email, code);
+      await account.verify(email, value);
       setStep('idle');
       setEmail('');
       setCode('');
@@ -88,8 +89,13 @@ export function AccountPanel({ account }: { account: Account }) {
         <>
           <Body>{t('codeSent', { email: email.trim() })}</Body>
           {account.devCode && <Mono accessibilityLabel={t('testCodeLabel')}>{t('testCode', { code: account.devCode })}</Mono>}
-          <TextInput accessibilityLabel={t('code')} value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))} onSubmitEditing={confirm} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} placeholder="123456" placeholderTextColor={C.mute} style={field} />
-          <Btn label={t('signIn')} disabled={busy || code.length !== 6} onPress={confirm} />
+          <TextInput accessibilityLabel={t('code')} value={code} onChangeText={(t) => {
+              const next = t.replace(/\D/g, '').slice(0, 6);
+              setCode(next);
+              if (next.length === 6 && next !== code && !busy) confirm(next);
+            }}
+            onSubmitEditing={() => confirm()} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} placeholder="123456" placeholderTextColor={C.mute} style={field} />
+          <Btn label={t('signIn')} disabled={busy || code.length !== 6} onPress={() => confirm()} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Pill label={t('sendAgain')} onPress={sendCode} />
             <Pill label={t('otherEmail')} onPress={() => { setStep('email'); setNote(null); }} />
