@@ -2,7 +2,23 @@ import Image from "next/image";
 import { BRAND } from "@/lib/brand";
 import { HeroVideo } from "./hero-video";
 
-// Static landing page in the "Gift tags" look (docs/design/gift-tags.md). The tool itself lives at /try.
+// Static landing page in the "Gift tags" look (docs/design/gift-tags.md). The main call opens the web app (NEXT_PUBLIC_APP_URL); the older tool stays at /try.
+
+// The installable web app; the deployment can point somewhere else with NEXT_PUBLIC_APP_URL
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://wishfit-web-test.vercel.app";
+
+const INSTALL = [
+  {
+    os: "iPhone · Safari",
+    color: "bg-[#8fd3ff]",
+    steps: ["Open Wishfit in Safari.", "Tap Share in the toolbar.", "Scroll down, tap “Add to Home Screen”.", "Tap Add."],
+  },
+  {
+    os: "Android · Chrome",
+    color: "bg-[#7fd6a8]",
+    steps: ["Open Wishfit in Chrome.", "Tap “Install app” when Wishfit offers it, or open the ⋮ menu.", "Tap “Install app” or “Add to Home screen”.", "Confirm."],
+  },
+];
 
 const STEPS = [
   { n: "1", color: "bg-[#ffd23f]", title: "Add someone", text: "Name, budget, occasion. That is the whole setup." },
@@ -56,11 +72,14 @@ export default function LandingPage() {
             in your budget, with receipts.
           </p>
           <div className="flex flex-wrap gap-3">
-            <a href="#film" className={`${pill} bg-[#0b0b0c] text-white`}>
+            <a href={APP_URL} className={`${pill} bg-[#0b0b0c] text-white`}>
+              Open Wishfit
+            </a>
+            <a href="#film" className={`${pill} bg-white`}>
               Watch the film
             </a>
-            <a href="#how" className={`${pill} bg-white`}>
-              How it works
+            <a href="#install" className={`${pill} bg-white`}>
+              Add to home screen
             </a>
           </div>
         </div>
@@ -121,6 +140,33 @@ export default function LandingPage() {
         </ol>
       </section>
 
+      <section id="install" className="flex scroll-mt-8 flex-col gap-8">
+        <div className="flex flex-col gap-3">
+          <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">Add to home screen</h2>
+          <p className="max-w-xl text-lg text-[#5f5f66]">
+            Wishfit runs in the browser and installs like an app: full screen, one tap away, no store.
+          </p>
+        </div>
+        <div className="grid gap-5 md:grid-cols-2">
+          {INSTALL.map((i) => (
+            <Tag key={i.os} className={i.color}>
+              <p className="gt-mono">{i.os}</p>
+              <ol className="mt-3 flex flex-col gap-2 text-base leading-relaxed">
+                {i.steps.map((st, n) => (
+                  <li key={st} className="flex gap-3">
+                    <span className="gt-display text-xl">{n + 1}</span>
+                    <span>{st}</span>
+                  </li>
+                ))}
+              </ol>
+            </Tag>
+          ))}
+        </div>
+        <a href={APP_URL} className={`${pill} self-start bg-[#0b0b0c] text-white`}>
+          Open Wishfit
+        </a>
+      </section>
+
       <section className="flex flex-col gap-8">
         <div className="flex flex-col gap-3">
           <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">With receipts</h2>
@@ -176,9 +222,14 @@ export default function LandingPage() {
 
       <section className="flex flex-col items-start gap-6 border-t-2 border-[#0b0b0c] pt-10">
         <h2 className="gt-display text-4xl tracking-tight sm:text-6xl">Who are you buying for?</h2>
-        <a href="#film" className={`${pill} bg-[#0b0b0c] text-white`}>
-          Watch the film
-        </a>
+        <div className="flex flex-wrap gap-3">
+          <a href={APP_URL} className={`${pill} bg-[#0b0b0c] text-white`}>
+            Open Wishfit
+          </a>
+          <a href="#film" className={`${pill} bg-white`}>
+            Watch the film
+          </a>
+        </div>
         <footer className="gt-mono mt-6 normal-case">
           Built at the Agentic Hackathon Berlin with the idealo MCP and the Nebius Token Factory.
         </footer>
