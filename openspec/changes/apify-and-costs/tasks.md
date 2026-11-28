@@ -7,4 +7,4 @@
 - [x] 2.2 GET /admin/costs inkl. Apify-Restguthaben
 - [x] 2.3 Admin-Seite „Kosten“
 ## 3. Prüfung
-- [ ] 3.1 selfcheck, Live-Empfehlung mit Apify, Kosten erscheinen in /admin/costs
+- [x] 3.1 selfcheck, Live-Läufe Apify, Kosten in /admin/costs (Live-Empfehlung erst nach Umstellen von PRICE_SOURCE)
