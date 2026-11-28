@@ -73,10 +73,12 @@ export function applyTombs(people: Person[], a: Tomb[], b: Tomb[], now = Date.no
   const tombs = [...newest].filter(([, at]) => now - at < TOMB_TTL_MS).map(([id, updatedAt]) => ({ id, updatedAt }));
   return { people: kept, tombs: tombs.filter((t) => !kept.some((p) => p.id === t.id)) };
 }
-// My profile: the newer one wins; a tie keeps the local one, so an untouched empty profile never hides the account's
+// My profile: the newer one wins; a tie keeps the local one. A local profile without name and wishes (a new
+// device) never wins against the account's, whatever its stamp
 export function mergeMe(local: Me, server: Me | null): Me {
   if (!server) return local;
-  const [win, lose] = stamp(server) > stamp(local) ? [server, local] : [local, server];
+  const empty = local.name.trim() === '' && local.wishes.length === 0;
+  const [win, lose] = empty || stamp(server) > stamp(local) ? [server, local] : [local, server];
   return { ...win, wishes: newerPrices(win.wishes, lose.wishes) };
 }
 

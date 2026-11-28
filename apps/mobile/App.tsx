@@ -97,11 +97,12 @@ function Root() {
   };
   const meRef = useRef(me);
   meRef.current = me;
-  // the account's language comes to this device without being sent back
+  // the account's language comes to this device without being sent back. Not stamped: the language lives in
+  // the account settings, and a stamp would let an empty profile on a new device win over the account's
   const adoptLanguage = (next: Lang) => {
     setLanguage(next);
     setLang(next);
-    if (meRef.current.language !== next) changeMe({ ...meRef.current, language: next });
+    if (meRef.current.language !== next) changeMe({ ...meRef.current, language: next }, false);
   };
   const account = useAccount(people, me, applyPeople, setMe, peopleRef, adoptLanguage);
   accountRef.current = account;
