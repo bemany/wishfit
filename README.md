@@ -103,6 +103,15 @@ Not there yet: the public deployment of the backend has no credentials, so the h
 There are no accounts, no friends or shared wishlists, no photo search and no Android build; those exist as
 design only. Results are kept in memory unless a Postgres `DATABASE_URL` is set.
 
+## Team
+
+Built by team Unexpected at the Agentic Hackathon Berlin:
+
+- Esref Yalcinkaya ([@bemany](https://github.com/bemany))
+- Florian Herzog
+- Haoran Wang ([@RyanWang-star](https://github.com/RyanWang-star))
+- Enes Avanoglu
+
 ## Notes
 
 - No secrets are in this repository. Credentials live in a local, gitignored `.env`.
