@@ -17,6 +17,8 @@ import { idFromUrl, newerPrices, loadMe, loadPeople, loadResult, recommend, save
 import { FriendWishes, ProfileView, applyPrices, fetchPrices, friendColor, friendContext, loadProfile, slugFromUrl, type PublicProfile } from './src/profile';
 import { AddPerson, Detail, MeScreen, People, Snap, Thread } from './src/screens';
 import { getLanguage, readSettings, setLanguage, t, writeSettings, type Lang } from './src/i18n';
+import { installTrigger } from './src/install';
+import { InstallSheet } from './src/install-ui';
 import { Onboarding } from './src/onboarding';
 import { onPushOpen } from './src/push';
 import { C } from './src/theme';
@@ -80,6 +82,7 @@ function Root() {
   const [lang, setLang] = useState<Lang>(getLanguage);
   const [onboarded, setOnboarded] = useState(() => readSettings().onboarded === true);
   // ponytail: one request at a time across all threads
+  const [installOpen, setInstallOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; text: string } | null>(null);
 
@@ -140,6 +143,7 @@ function Root() {
     try {
       const result = await recommend(person, text, photo?.base64, friendContext(person));
       update(person.id, (p) => ({ ...p, lastResultId: result.id, messages: [...p.messages, { role: 'agent', result }] }));
+      if (installTrigger('recommendation')) setInstallOpen(true);
     } catch (e) {
       // An unanswered message does not stay in the thread, only the error line does
       update(person.id, (p) => {
@@ -406,6 +410,7 @@ function Root() {
           onDone={() => {
             writeSettings({ onboarded: true });
             setOnboarded(true);
+            if (installTrigger('onboarding')) setInstallOpen(true);
           }}
         />
       ) : (
@@ -427,6 +432,7 @@ function Root() {
           {view.name !== 'people' && <EdgeBack p={p} onStart={swipe.onStart} onRelease={swipe.onRelease} />}
         </View>
       )}
+      <InstallSheet open={installOpen} onClose={() => setInstallOpen(false)} />
     </View>
   );
 }

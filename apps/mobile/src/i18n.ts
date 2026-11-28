@@ -32,6 +32,19 @@ const en = {
   obAllow: 'Allow notifications',
   obLater: 'Later',
 
+  // install hint (web app only)
+  installLabel: 'Install',
+  installTitle: 'Keep Wishfit on your home screen.',
+  installBody: 'Opens like an app, full screen, one tap away. No store needed.',
+  installButton: 'Install app',
+  installLater: 'Later',
+  installGotIt: 'Got it',
+  installRow: 'Add to home screen',
+  installIos1: 'Tap Share in the Safari toolbar',
+  installIos2: 'Scroll down and tap “Add to Home Screen”',
+  installIos3: 'Tap Add. Done.',
+  installOpenSafari: 'To install Wishfit, open this page in Safari, then tap Share → “Add to Home Screen”.',
+
   // people
   snapProduct: 'Snap a product',
   me: 'Me',
@@ -276,6 +289,19 @@ const de: Record<Key, string> = {
   obPushSignedOut: 'Mitteilungen kommen, sobald du angemeldet bist.',
   obAllow: 'Mitteilungen erlauben',
   obLater: 'Später',
+
+  // install hint (web app only)
+  installLabel: 'Installieren',
+  installTitle: 'Wishfit auf deinen Home-Bildschirm.',
+  installBody: 'Öffnet sich wie eine App, im Vollbild, mit einem Tipp. Kein Store nötig.',
+  installButton: 'App installieren',
+  installLater: 'Später',
+  installGotIt: 'Verstanden',
+  installRow: 'Zum Home-Bildschirm hinzufügen',
+  installIos1: 'Tippe in der Safari-Leiste auf Teilen',
+  installIos2: 'Scrolle nach unten und tippe auf „Zum Home-Bildschirm“',
+  installIos3: 'Tippe auf Hinzufügen. Fertig.',
+  installOpenSafari: 'Um Wishfit zu installieren, öffne diese Seite in Safari und tippe dann auf Teilen → „Zum Home-Bildschirm“.',
 
   snapProduct: 'Produkt fotografieren',
   me: 'Ich',
