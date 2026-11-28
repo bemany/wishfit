@@ -75,3 +75,8 @@ Recommendations requested so far: 4 (~4 cent).
 - 23/24 EN UI for result and detail ("Why and where to buy", "WHY THIS ONE", "FROM WHAT YOU TOLD ME", "THE DATA BEHIND IT"). Observation: the agent texts stay German because the stored messages were created in DE.
 - 25 own public profile /u/<slug> (anonymous view): "Ein geteilter Anhänger", Esref, 10 Wünsche, "Als Freund hinzufügen"/"In der App öffnen", list with prices. Friend chat: not available (Esref has no friend tags).
 Recommendations requested in total: 6 (~6 cent, budget 0,50 $).
+
+# Real journey (native)
+iPhone 18 Pro – Wishloop simulator, fresh Debug build (prebuild + xcodebuild), EN UI (the account language is "en", not changed), signed in via local proxy + inserted code. Files real/native/NN-*.png. No new recommendations requested natively (budget); existing Demo Lea chat shown.
+- 01 home with Demo Lea and Vanessa. 02 chat bottom (photo-search result "Wie wäre das hier?"). 03–05 detail of the Contigo pick: "From what you told me", "The data behind it · idealo", total/offers/availability, price/shipping/total table, "Decided by …", button "Open offer · €14.99". 06 tap on the offer opens the in-app browser sheet (idealo.de; page stays blank in the simulator). 07 chat start with the user message, 08/09 Stanley recommendation card with image, 10 alternatives ("Pin") + "Etwas anderes" failure message + quick replies Cheaper / Something else / They already have it. 11 edit person (More). 12 Me page with wishes, images and 30-day price trends.
+- Not captured natively: add-person form, loading state (no new request), quick replies, camera/photo upload (no camera in the simulator), public profile, friend chat.
