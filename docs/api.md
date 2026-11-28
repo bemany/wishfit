@@ -89,7 +89,7 @@ are trimmed and lower-cased.
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
 | POST | `/auth/request-code` | no | `{email, language?}` (`"de"` default, `"en"`) | 204. Test mode (`AUTH_DEV_CODES=1`, no mail key): 200 `{dev_code}`. 422 invalid address, 429 more than once per 60 s or 5 per hour, 502 mail could not be sent, 503 mail not configured (production without mail key and without test mode) |
-| POST | `/auth/verify` | no | `{email, code}` | 200 `{token, user: {id, email, created_at, language}, created}` (`language`: the account language set via `PUT /me/settings`, `null` until set; the app adopts it on sign-in); 401 wrong, expired or used code (5 attempts per code) |
+| POST | `/auth/verify` | no | `{email, code, attribution?}` (see Admin console) | 200 `{token, user: {id, email, created_at, language}, created}` (`language`: the account language set via `PUT /me/settings`, `null` until set; the app adopts it on sign-in); 401 wrong, expired or used code (5 attempts per code) |
 | POST | `/auth/logout` | yes | `{device_token?}` | 204, the token is invalid afterwards; a given push `device_token` of this account is removed in the same call |
 | GET | `/me` | yes | – | 200 `{id, email, created_at, language}` |
 | DELETE | `/me` | yes | – | 204, deletes account, sessions and synced data; results lose their owner |
@@ -137,3 +137,28 @@ Daily check per account: price drop on friends' wishes and pins, item back in st
 Payload: `aps.alert {title, body}` in the user's language, plus `personId` and `slug` of the top item for deep links.
 
 Env: `APNS_KEY` (p8 PEM), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` (`sandbox`|`production`), `CRON_SECRET`.
+
+## Admin console (change `admin-console`)
+
+Admin = signed-in user whose e-mail is in `ADMIN_EMAILS` (comma-separated, case-insensitive) and whose session is **not** an impersonation session. No session → 401, anyone else → 403 `{detail}`. Responses carry no codes or token hashes; device tokens only as `token_tail` (last 6 characters).
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/admin/me` | – | 200 `{email}` |
+| GET | `/admin/users?query=&limit=50&offset=0` | – | 200 `{users: [{id, email, created_at, language, people, wishes, devices, results, last_seen_at, profile_slug, signup_source, source, referred_by_email, referrals}], total}`; `query` = part of the e-mail, limit max 200 |
+| GET | `/admin/users/{id}` | – | 200 `{user, data: {people, profile, updated_at}, devices: [{token_tail, platform, created_at, last_ok_at}], results: [{id, created_at, status, model}]}`; 404 |
+| GET | `/admin/results?user_id=&limit=50` | – | 200 `{results: [{id, created_at, user_id, email, status, model, duration_ms, error}]}`; `duration_ms` = sum of the trace's model calls, `error` = trace error or null |
+| GET | `/admin/results/{id}` | – | 200 `{response, trace}`; 404 |
+| POST | `/admin/push-test` | `{user_id, title?, body?}` | 200 `{sent, devices}`; 404 unknown user; 503 APNs not configured |
+| POST | `/admin/cron` | – | 200 result of the daily check (`/cron/daily`) |
+| POST | `/admin/impersonate` | `{user_id}` | 200 `{token, user: {id, email, language}, expires_at}`; 404 unknown user |
+| DELETE | `/admin/impersonate` | – | Bearer = impersonation token → 204, session deleted; 400 for any other session |
+| GET | `/admin/audit?limit=100` | – | 200 `{entries: [{at, admin_email, action, target_user_id, detail}]}`, newest first |
+| GET | `/admin/acquisition` | – | 200 `{by_source: [{source, medium, campaign, users}], top_referrers: [{user_id, email, referrals}]}` |
+
+- Impersonation session: its own token (hash only in the database), exactly 30 minutes, never extended. `GET /me` adds `impersonated_by_email`.
+  With it these answer 403: all `/admin/*` except `DELETE /admin/impersonate`, `DELETE /me`, `POST /me/devices`.
+- Audit actions: `impersonate_start`, `impersonate_end`, `push_test`, `cron_run`, and `write` for every non-GET call made with an impersonation session on a signed-in endpoint (`detail {method, path}`, never a body or token; the public `/wishlist/import` and `/wishes/price` are not logged). Fail-closed: if the audit cannot be written, the write is refused (500). An impersonation session can neither touch the user's push devices (`/me/devices*` 403, `device_token` on logout ignored) nor outlive its admin: if the admin is no longer in `ADMIN_EMAILS`, the session ends (401).
+- `source` = `utm_source`, else `referral` (has an inviter), else `direct`.
+- `POST /auth/verify` takes an optional `attribution` object. Only for a new account (`created: true`); known keys `utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer, landing, platform` (strings, max 200 characters each, rest ignored) go to `signup_source`; `ref` = a profile slug, resolved to the inviter (an unknown or ended slug gives no inviter; one cannot invite oneself).
+- Env: `ADMIN_EMAILS`.

@@ -55,7 +55,31 @@ def optional_user(request: Request) -> dict | None:
     user = db.session_user(_token_hash(token))
     if user is None:
         raise HTTPException(401, "invalid token")
+    if user.get("_imp"):
+        _guard_impersonation(request, user)
     return user
+
+
+def admin_emails() -> set[str]:
+    return {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+
+
+def _guard_impersonation(request: Request, user: dict) -> None:
+    """An impersonation session may not reach the admin API (except ending itself), delete the account or register
+    devices; every other write is logged with method and path only (no body, no token)."""
+    method, path = request.method, request.url.path.rstrip("/") or "/"
+    if method == "DELETE" and path == "/admin/impersonate":
+        return
+    if path.startswith("/admin") or (method == "DELETE" and path == "/me") or path.startswith("/me/devices"):
+        raise HTTPException(403, "not allowed while viewing as a user")
+    # the admin behind the session must still be an admin (a removed admin loses running sessions at once)
+    admin = db.get_user(user["_imp"])
+    if admin is None or admin["email"].lower() not in admin_emails():
+        db.delete_session(_token_hash(_bearer(request)))
+        raise HTTPException(401, "impersonation ended")
+    if method not in ("GET", "HEAD", "OPTIONS"):
+        # fail closed: a write under impersonation that cannot be logged does not happen
+        db.add_audit(user["_imp"], "write", user["id"], {"method": method, "path": path[:200]})
 
 
 def current_user(user: dict | None = Depends(optional_user)) -> dict:
@@ -72,6 +96,20 @@ class CodeRequest(BaseModel):
 class VerifyRequest(BaseModel):
     email: str
     code: str
+    attribution: dict | None = None
+
+
+ATTRIBUTION_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "referrer", "landing", "platform")
+
+
+def _attribution(raw: dict | None) -> tuple[dict, str | None]:
+    """Known keys only, strings of at most 200 characters; `ref` is a profile slug resolved to the inviter's user id."""
+    if not isinstance(raw, dict):
+        return {}, None
+    source = {k: raw[k].strip()[:200] for k in ATTRIBUTION_KEYS if isinstance(raw.get(k), str) and raw[k].strip()}
+    ref = raw.get("ref")
+    inviter = db.profile_owner(ref.strip()) if isinstance(ref, str) and 0 < len(ref.strip()) <= 40 else None
+    return source, inviter
 
 
 def _email(raw: str) -> str:
@@ -109,7 +147,8 @@ def verify(req: VerifyRequest):
     code = req.code.strip()
     if claim is None or not hmac.compare_digest(claim[1], _code_hash(email, code)) or not db.consume_code(claim[0]):
         raise HTTPException(401, "invalid or expired code")
-    user, created = db.get_or_create_user(email)
+    source, inviter = _attribution(req.attribution)
+    user, created = db.get_or_create_user(email, source, inviter)
     token = secrets.token_urlsafe(32)
     db.create_session(_token_hash(token), user["id"], SESSION_TTL)
     # the account's language (set on another device) travels with the sign-in; null until the app saves one
@@ -123,7 +162,7 @@ class LogoutBody(BaseModel):
 @router.post("/auth/logout", status_code=204)
 def logout(request: Request, body: LogoutBody | None = None, user: dict = Depends(current_user)) -> Response:
     # the app's push device goes in the same call, so a sign-out never leaves it registered
-    if body and body.device_token:
+    if body and body.device_token and not user.get("_imp"):  # viewing as a user never touches the user's devices
         db.remove_device(body.device_token.strip().lower()[:200], user["id"])
     db.delete_session(_token_hash(_bearer(request)))
     return Response(status_code=204)
@@ -131,7 +170,11 @@ def logout(request: Request, body: LogoutBody | None = None, user: dict = Depend
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)) -> dict:
-    return {**user, "language": db.get_language(user["id"])}
+    out = {k: v for k, v in user.items() if k != "_imp"}
+    if user.get("_imp"):
+        admin = db.get_user(user["_imp"])
+        out["impersonated_by_email"] = admin["email"] if admin else None
+    return {**out, "language": db.get_language(user["id"])}
 
 
 @router.delete("/me", status_code=204)
