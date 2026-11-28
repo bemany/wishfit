@@ -158,7 +158,7 @@ export function InstallSheet({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
-// Banner on top: icon, short text, "Install". The cross hides it for 7 days; on Android/desktop "Install" opens the
+// Banner on top, in the flow above the screen (the app's own top padding moves into it): icon, short text, "Install". The cross hides it for 7 days; on Android/desktop "Install" opens the
 // browser dialog directly, elsewhere the sheet with the steps.
 export function InstallBanner({ open, onClose, onOpenSheet }: { open: boolean; onClose: () => void; onOpenSheet: () => void }): ReactNode {
   const insets = useSafeAreaInsets();
@@ -169,7 +169,7 @@ export function InstallBanner({ open, onClose, onOpenSheet }: { open: boolean; o
     promptInstall().then((ok) => ok && onClose());
   };
   return (
-    <View accessibilityRole="alert" style={{ position: 'absolute', left: 0, right: 0, top: 0, zIndex: 50, backgroundColor: C.lemon, borderBottomWidth: 2, borderColor: C.ink, paddingTop: insets.top + 8, paddingBottom: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <View accessibilityRole="alert" style={{ backgroundColor: C.lemon, borderBottomWidth: 2, borderColor: C.ink, paddingTop: insets.top + 8, paddingBottom: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <CloseX
         onPress={() => {
           snoozeInstall();

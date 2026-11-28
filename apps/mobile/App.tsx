@@ -428,8 +428,9 @@ function Root() {
   };
 
   return (
-    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
+    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: installBanner && !installOpen ? 0 : insets.top + 8 }}>
       <StatusBar style="dark" />
+      <InstallBanner open={installBanner && !installOpen} onClose={() => setInstallBanner(false)} onOpenSheet={() => setInstallOpen(true)} />
       {!signedIn && view.name === 'profile' && !askSignIn ? (
         // a shared tag without an account: the preview, before or after the onboarding
         <ProfileView
@@ -485,7 +486,6 @@ function Root() {
           {view.name !== 'people' && <EdgeBack p={p} onStart={swipe.onStart} onRelease={swipe.onRelease} />}
         </View>
       )}
-      <InstallBanner open={installBanner && !installOpen} onClose={() => setInstallBanner(false)} onOpenSheet={() => setInstallOpen(true)} />
       <InstallSheet open={installOpen} onClose={() => { setInstallOpen(false); setInstallBanner(false); }} />
     </View>
   );
