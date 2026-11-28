@@ -112,7 +112,8 @@ def verify(req: VerifyRequest):
     user, created = db.get_or_create_user(email)
     token = secrets.token_urlsafe(32)
     db.create_session(_token_hash(token), user["id"], SESSION_TTL)
-    return {"token": token, "user": user, "created": created}
+    # the account's language (set on another device) travels with the sign-in; null until the app saves one
+    return {"token": token, "user": {**user, "language": db.get_language(user["id"])}, "created": created}
 
 
 class LogoutBody(BaseModel):
@@ -130,7 +131,7 @@ def logout(request: Request, body: LogoutBody | None = None, user: dict = Depend
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)) -> dict:
-    return user
+    return {**user, "language": db.get_language(user["id"])}
 
 
 @router.delete("/me", status_code=204)

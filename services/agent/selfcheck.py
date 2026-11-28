@@ -600,6 +600,9 @@ uid = push_user["user"]["id"]
 assert api.put("/me/settings", json={"language": "en"}).status_code == 401
 assert api.put("/me/settings", json={"language": "fr"}, headers=push_h).status_code == 422
 assert api.put("/me/settings", json={"language": "en"}, headers=push_h).json() == {"language": "en"}
+# the account language comes back on /me and with the next sign-in
+assert api.get("/me", headers=push_h).json()["language"] == "en"
+assert sign_in(push_user["user"]["email"])[0]["user"]["language"] == "en"
 assert push.user_language(uid) == "en"
 assert api.post("/me/devices", json={"token": "nope"}, headers=push_h).status_code == 422
 assert api.post("/me/devices", json={"token": TOK, "platform": "ios"}).status_code == 401
