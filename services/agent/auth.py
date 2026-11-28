@@ -115,8 +115,15 @@ def verify(req: VerifyRequest):
     return {"token": token, "user": user, "created": created}
 
 
+class LogoutBody(BaseModel):
+    device_token: str | None = None
+
+
 @router.post("/auth/logout", status_code=204)
-def logout(request: Request, _: dict = Depends(current_user)) -> Response:
+def logout(request: Request, body: LogoutBody | None = None, user: dict = Depends(current_user)) -> Response:
+    # the app's push device goes in the same call, so a sign-out never leaves it registered
+    if body and body.device_token:
+        db.remove_device(body.device_token.strip().lower()[:200], user["id"])
     db.delete_session(_token_hash(_bearer(request)))
     return Response(status_code=204)
 

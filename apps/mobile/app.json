@@ -46,7 +46,7 @@
       [
         "expo-notifications",
         {
-          "mode": "development"
+          "mode": "production"
         }
       ]
     ]

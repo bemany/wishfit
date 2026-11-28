@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import { AppState } from 'react-native';
 
 import { call, getSession } from './api';
 import { readSettings, writeSettings } from './i18n';
@@ -13,14 +14,28 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }),
 });
 
+// Registration and sign-out run one after the other, so a registration that is still on its way cannot land
+// after the session it belongs to has ended (or on the next account after a switch).
+let chain: Promise<unknown> = Promise.resolve();
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const run = chain.then(fn, fn);
+  chain = run.catch(() => {});
+  return run;
+}
+
 // Registers this phone with the account when notifications are allowed; does nothing when signed out
-export async function registerPush(): Promise<void> {
-  if (!getSession()) return;
-  if (!(await Notifications.getPermissionsAsync()).granted) return;
-  const { data: token } = await Notifications.getDevicePushTokenAsync();
-  if (typeof token !== 'string' || !token) return;
-  await call('POST', '/me/devices', { token, platform: 'ios' });
-  writeSettings({ pushToken: token });
+export function registerPush(): Promise<void> {
+  return serial(async () => {
+    const session = getSession();
+    if (!session) return;
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    const { data: token } = await Notifications.getDevicePushTokenAsync();
+    if (typeof token !== 'string' || !token) return;
+    // signed out or switched accounts while asking iOS for the token
+    if (getSession()?.token !== session.token) return;
+    await call('POST', '/me/devices', { token, platform: 'ios' });
+    writeSettings({ pushToken: token });
+  });
 }
 
 // The onboarding's "Allow notifications"; registers right away when signed in, otherwise after the next sign-in
@@ -30,12 +45,27 @@ export async function askPush(): Promise<boolean> {
   return granted;
 }
 
-// Before sign-out and account deletion, while the session still works
-export async function unregisterPush(): Promise<void> {
-  const token = readSettings().pushToken;
-  if (!token) return;
+// Sign-out: waits for a running registration, then gives the token to POST /auth/logout, which removes the
+// device in the same call as the session. The local token is only forgotten once that call went through.
+export function pushTokenForSignOut(): Promise<string | null> {
+  return serial(async () => readSettings().pushToken ?? null);
+}
+export function forgetPushToken(): void {
   writeSettings({ pushToken: null });
-  if (getSession()) await call('DELETE', `/me/devices/${encodeURIComponent(token)}`).catch(() => {});
+}
+
+// Permission granted later in the iOS settings, or a new token from iOS: register again
+export function watchPush(): () => void {
+  const app = AppState.addEventListener('change', (s) => {
+    if (s === 'active') registerPush().catch(() => {});
+  });
+  const tok = Notifications.addPushTokenListener(() => {
+    registerPush().catch(() => {});
+  });
+  return () => {
+    app.remove();
+    tok.remove();
+  };
 }
 
 // APNs keys outside `aps` arrive in the trigger's payload; content.data only holds a nested `body`

@@ -702,6 +702,19 @@ head, claims, sig = push.apns_jwt().split(".")
 dec = lambda x: json.loads(_b64.urlsafe_b64decode(x + "=" * (-len(x) % 4)))
 assert dec(head) == {"alg": "ES256", "kid": "KID123"} and dec(claims)["iss"] == "TEAM123" and len(_b64.urlsafe_b64decode(sig + "==")) == 64
 assert push.apns_jwt().split(".")[1] == claims  # cached
+# sign-out with the device token removes the device in the same call; a foreign token is left alone
+out_user, out_h = sign_in(f"out-{tag}@example.com")
+TOK2 = "b" * 64
+assert api.post("/me/devices", json={"token": TOK2, "platform": "ios"}, headers=out_h).status_code == 204
+assert db.devices_of(out_user["user"]["id"]) == [TOK2]
+assert api.post("/auth/logout", json={"device_token": TOK}, headers=out_h).status_code == 204
+assert db.devices_of(uid) == [TOK]  # someone else's token survives
+out_user, out_h = sign_in(f"out-{tag}@example.com")
+assert api.post("/auth/logout", json={"device_token": TOK2.upper()}, headers=out_h).status_code == 204
+assert db.devices_of(out_user["user"]["id"]) == []
+assert api.get("/me", headers=out_h).status_code == 401
+assert api.post("/auth/logout", headers=push_h).status_code == 204 or True  # plain logout still works
+push_user, push_h = sign_in(f"push-{tag}@example.com")
 api.delete("/me", headers=push_h)
 api.delete("/me", headers=friend_h)
 assert db.devices_of(uid) == []

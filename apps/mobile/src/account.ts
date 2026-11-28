@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 
 import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
 import { getLanguage, isLang, t, type Lang } from './i18n';
-import { registerPush, unregisterPush } from './push';
+import { forgetPushToken, pushTokenForSignOut, registerPush, watchPush } from './push';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
 
@@ -260,6 +260,9 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     registerPush().catch(() => {});
   }, []);
 
+  // notifications allowed later in the iOS settings, or a new token from iOS
+  useEffect(() => watchPush(), []);
+
   // coming back to the foreground: pull again, at most once a minute
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
@@ -308,13 +311,21 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
   const signOut = async () => {
-    await unregisterPush();
-    await call('POST', '/auth/logout').catch(() => {});
+    const device_token = await pushTokenForSignOut();
+    try {
+      await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
+    } catch (e) {
+      // only a gone session counts as signed out; anything else keeps it so the user can try again
+      if (!(e instanceof ApiError && e.status === 401)) throw e;
+    }
+    forgetPushToken();
     drop();
   };
   const deleteAccount = async () => {
-    await unregisterPush();
+    await pushTokenForSignOut();
+    // DELETE /me removes the account's devices on the server
     await call('DELETE', '/me');
+    forgetPushToken();
     // the data stays on this device
     drop();
   };

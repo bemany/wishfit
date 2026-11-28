@@ -90,7 +90,7 @@ are trimmed and lower-cased.
 |---|---|---|---|---|
 | POST | `/auth/request-code` | no | `{email, language?}` (`"de"` default, `"en"`) | 204. Test mode (`AUTH_DEV_CODES=1`, no mail key): 200 `{dev_code}`. 422 invalid address, 429 more than once per 60 s or 5 per hour, 502 mail could not be sent, 503 mail not configured (production without mail key and without test mode) |
 | POST | `/auth/verify` | no | `{email, code}` | 200 `{token, user: {id, email, created_at}, created}`; 401 wrong, expired or used code (5 attempts per code) |
-| POST | `/auth/logout` | yes | – | 204, the token is invalid afterwards |
+| POST | `/auth/logout` | yes | `{device_token?}` | 204, the token is invalid afterwards; a given push `device_token` of this account is removed in the same call |
 | GET | `/me` | yes | – | 200 `{id, email, created_at}` |
 | DELETE | `/me` | yes | – | 204, deletes account, sessions and synced data; results lose their owner |
 | GET | `/me/data` | yes | – | 200 `{people, profile, updated_at}`; empty account: `{people: [], profile: null, updated_at: null}` |
