@@ -312,9 +312,38 @@ def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
     return data
 
 
+SNAPSHOT_WORD = re.compile(r"[a-zäöüß0-9]{5,}")
+
+
+def snapshot_fallback(req: RecommendRequest, trace: dict) -> list[dict] | None:
+    """IDEALO_FALLBACK=snapshot: while the live idealo access is down, answer from the stored demo snapshots, but only
+    for wishes that share a word (5+ letters) with a snapshot wish or one of its products; unrelated wishes get none."""
+    if os.environ.get("IDEALO_FALLBACK") != "snapshot":
+        return None
+    entries = []
+    for path in sorted((HERE / "snapshots").glob("*.json")):
+        entries += json.loads(path.read_text())["wishes"]
+    found: list[dict] = []
+    for wish in req.wishes:
+        words = set(SNAPSHOT_WORD.findall(wish.lower()))
+        for entry in entries:
+            text = (entry["wish"] + " " + " ".join(str(m.get("product_name", "")) for m in entry.get("matches", []))).lower()
+            if entry not in found and any(w in text for w in words):
+                found.append(entry)
+                trace["idealo_calls"].append({"tool": "snapshot", "arguments": {"wish": wish, "fallback": True},
+                                              "result": entry, "duration_ms": 0, "source": "snapshot"})
+    return found or None
+
+
 def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
     if not req.demo_case:
-        return fetch_idealo_live(req, trace)  # req.wishes already holds the extracted ideas
+        try:
+            return fetch_idealo_live(req, trace)  # req.wishes already holds the extracted ideas
+        except HTTPException:
+            fallback = snapshot_fallback(req, trace)
+            if fallback is None:
+                raise
+            return fallback
     started = time.perf_counter()
     snapshot = json.loads((HERE / "snapshots" / f"{req.demo_case}.json").read_text())
     duration_ms = round((time.perf_counter() - started) * 1000)

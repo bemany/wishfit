@@ -904,4 +904,17 @@ api.delete("/me", headers=adm_h)
 os.environ.pop("ADMIN_EMAILS")
 print("admin   ok: 403 for non-admin, users/results/audit, impersonation limits + expiry, audit, attribution")
 
+# idealo down + IDEALO_FALLBACK=snapshot: matching wishes come from the stored snapshots, unrelated ones get nothing
+import main as _m
+_fb_req = _m.RecommendRequest(recipient_name="Lea", budget_eur=60, occasion="Geburtstag", wishes=["Handkaffeemühle für Kaffee", "Brettspiel"])
+os.environ["IDEALO_FALLBACK"] = "snapshot"
+_tr = {"idealo_calls": []}
+_found = _m.snapshot_fallback(_fb_req, _tr)
+assert _found and all("kaffee" in (e["wish"] + str(e.get("matches"))).lower() for e in _found), _found
+assert all(c["source"] == "snapshot" for c in _tr["idealo_calls"])
+assert _m.snapshot_fallback(_m.RecommendRequest(recipient_name="L", budget_eur=60, occasion="x", wishes=["Brettspiel"]), {"idealo_calls": []}) is None
+os.environ.pop("IDEALO_FALLBACK")
+assert _m.snapshot_fallback(_fb_req, {"idealo_calls": []}) is None
+print("fallbk  ok: snapshot fallback only for matching wishes, only when switched on")
+
 print("ALL CHECKS PASSED")
