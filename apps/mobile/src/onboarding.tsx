@@ -26,6 +26,8 @@ export function Onboarding({ lang, account, onLanguage, onSignedIn, onDone }: { 
     return (
       <SignIn
         account={account}
+        lang={lang}
+        onLanguage={onLanguage}
         onBack={() => setStep('intro')}
         onDone={() => {
           onSignedIn();
