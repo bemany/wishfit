@@ -2,10 +2,22 @@ import { useEffect, useState } from 'react';
 
 import { readJson, writeJson } from './storage';
 
-// Install hint of the web app, see openspec/changes/pwa-journey (design.md 1 to 4).
+// Install hint of the web app, see openspec/changes/pwa-journey (design.md 1 to 4) and pwa-guided-install.
 // index.html catches beforeinstallprompt before React starts and keeps it in window.__wfInstall.
 
-export type InstallMode = 'none' | 'prompt' | 'ios-safari' | 'ios-other';
+// What the sheet shows, decided from the browser (openspec/changes/pwa-guided-install)
+export type InstallMode =
+  | 'none' // runs installed already
+  | 'prompt' // the browser offers its own dialog (Android, Chrome/Edge on the desktop)
+  | 'ios-compact' // Safari on iOS 26+, compact bar: menu, Share, Show more
+  | 'ios-safari' // Safari on iOS up to 18, Share in the toolbar
+  | 'ios-other' // Chrome, Edge, Firefox on iOS 16.4+
+  | 'ios-old' // iOS browser that cannot add to the home screen
+  | 'android' // menu, "Install app"
+  | 'samsung'
+  | 'desktop' // install icon in the address bar
+  | 'mac-safari' // File, Add to Dock
+  | 'other';
 
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 const win = window as unknown as { __wfInstall?: InstallEvent | null };
@@ -15,12 +27,28 @@ const ua = () => navigator.userAgent;
 const ios = () => /iPad|iPhone|iPod/.test(ua()) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // every iOS browser except Safari names itself (Chrome, Firefox, Edge, Opera, Google app, in-app browsers)
 const iosOther = () => /CriOS|FxiOS|EdgiOS|OPiOS|GSA\/|FBAN|FBAV|Instagram|Line\//.test(ua());
+// Safari 26 keeps "OS 18_6" in its user agent, so its own version decides; other iOS browsers show the system version
+const iosVersion = (): number => {
+  const m = ua().match(/Version\/(\d+)/) ?? ua().match(/OS (\d+)_/);
+  return m ? Number(m[1]) : 0;
+};
+const iosMinor = (): number => {
+  const m = ua().match(/OS (\d+)_(\d+)/);
+  return m ? Number(m[1]) + Number(m[2]) / 100 : 0;
+};
 
 export const installMode = (): InstallMode => {
   if (standalone()) return 'none';
   if (win.__wfInstall) return 'prompt';
-  if (ios()) return iosOther() ? 'ios-other' : 'ios-safari';
-  return 'none';
+  const agent = ua();
+  if (ios()) {
+    if (iosOther()) return iosMinor() >= 16.04 ? 'ios-other' : 'ios-old';
+    return iosVersion() >= 26 ? 'ios-compact' : 'ios-safari';
+  }
+  if (/Android/.test(agent)) return /SamsungBrowser/.test(agent) ? 'samsung' : /Chrome|EdgA/.test(agent) ? 'android' : 'other';
+  if (/Macintosh/.test(agent) && /Safari\//.test(agent) && !/Chrome|Chromium|Edg|Firefox|OPR/.test(agent)) return 'mac-safari';
+  if (/Chrome|Edg/.test(agent) && !/OPR/.test(agent)) return 'desktop';
+  return 'other';
 };
 
 // Re-renders when the browser delivers the install event late or the app got installed
@@ -56,7 +84,8 @@ export const snoozeInstall = () => writeJson('installDismissedAt', Date.now());
 // Whether the hint opens by itself now: after the onboarding, and once more after the first recommendation.
 // "Later" hides it for 7 days.
 export function installTrigger(when: 'onboarding' | 'recommendation'): boolean {
-  if (installMode() === 'none') return false;
+  const mode = installMode();
+  if (mode === 'none' || mode === 'other' || mode === 'ios-old') return false;
   const at = readJson('installDismissedAt');
   if (typeof at === 'number' && Date.now() - at < 7 * DAY) return false;
   if (when === 'recommendation') {
