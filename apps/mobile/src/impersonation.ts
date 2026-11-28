@@ -2,4 +2,4 @@
 export type Impersonation = { userId: string; prefix: string };
 export const impersonation: Impersonation | null = null;
 export const clearImpersonation = (_prefix: string) => {};
-export const notifyEnded = () => {};
+export const notifyEnded = (_reason: 'ended' | 'expired') => {};

@@ -21,7 +21,7 @@ export const endImpersonation = async () => {
   }
   clearSession();
   if (impersonation) clearImpersonation(impersonation.prefix);
-  notifyEnded();
+  notifyEnded('ended');
 };
 
 // red from the very top like the iOS call bar; the console's phone frame puts its notch over the first 50 px
@@ -50,7 +50,8 @@ export function ImpersonationStrip({ email }: { email: string }) {
 export function ImpersonationEnded() {
   useEffect(() => {
     if (impersonation) clearImpersonation(impersonation.prefix);
-    notifyEnded();
+    // the strip's End never gets here (it closes the frame); this is the server refusing the session
+    notifyEnded('expired');
   }, []);
   return (
     <View testID="imp-ended" style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 8 }}>

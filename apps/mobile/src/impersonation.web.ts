@@ -7,10 +7,25 @@ export type Impersonation = { userId: string; prefix: string };
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
+const framedBySelf = () => {
+  try {
+    return window.top !== window.self && window.parent.location.origin === window.location.origin;
+  } catch {
+    // another origin's window throws on access
+    return false;
+  }
+};
+
 const start = (): Impersonation | null => {
   if (typeof window === 'undefined') return null;
   const query = new URLSearchParams(window.location.search);
   if (query.get('imp') !== '1') return null;
+  // only the admin console on this origin may open a view: a link with a token, opened on its own or framed by
+  // another site, is dropped and the app starts as usual (frame-ancestors keeps other sites out as well)
+  if (!framedBySelf()) {
+    window.history.replaceState(null, '', '/');
+    return null;
+  }
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
   const userId = hash.get('u') ?? query.get('u') ?? '';
   // without a user the simulator has no area of its own; the app then shows that the view has ended
@@ -44,9 +59,10 @@ export const clearImpersonation = (prefix: string) => {
 };
 
 // Tells the admin console around the iframe that the view has ended
-export const notifyEnded = () => {
+// reason: 'ended' by the user, 'expired' when the server no longer accepts the session
+export const notifyEnded = (reason: 'ended' | 'expired') => {
   try {
-    window.parent?.postMessage({ type: 'wishfit-imp-end' }, window.location.origin);
+    window.parent?.postMessage({ type: 'wishfit-imp-end', reason }, window.location.origin);
   } catch {
     // not inside the console
   }
