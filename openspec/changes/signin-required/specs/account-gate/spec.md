@@ -37,12 +37,20 @@ Beim ersten Anmelden SHALL die App lokal vorhandene Personen und Profil mit dem 
 - **WHEN** der Nutzer sich abmeldet oder sein Konto löscht
 - **THEN** überträgt die App zuerst offene Änderungen ins Konto und entfernt danach Personen und Profil vom Gerät, damit sie bei einer anderen Anmeldung nicht in ein fremdes Konto gelangen; bei 401 bleiben sie für dasselbe Konto erhalten
 
+#### Scenario: Abmelden ohne Verbindung
+- **WHEN** sich die letzten Änderungen beim Abmelden nicht speichern lassen (offline, zu groß)
+- **THEN** fragt die App „Trotzdem abmelden?" mit dem Hinweis, dass sie verloren gehen, und meldet bei Bestätigung ab; während des Abmeldens nimmt die App keine Eingaben an
+
+#### Scenario: Anderes Konto nach 401
+- **WHEN** nach einer verlorenen Session (401) eine andere E-Mail angemeldet wird
+- **THEN** leert die App Personen und Profil vor dem ersten Abgleich, sodass nichts vom vorigen Konto ins neue gelangt; dieselbe E-Mail bekommt die Daten zurück
+
 ### Requirement: Sprache gehört zum Konto
 Die App SHALL die im Konto gespeicherte Sprache übernehmen und SHALL Sprachwechsel im Konto speichern.
 
 #### Scenario: Neues Gerät
 - **WHEN** sich jemand auf einem neuen Gerät mit einem bestehenden Konto anmeldet, dessen Sprache gesetzt ist
-- **THEN** wechselt die Oberfläche in die Kontosprache, auch wenn auf dem Gerät vorher eine andere gewählt war
+- **THEN** wechselt die Oberfläche in die Kontosprache, auch wenn auf dem Gerät vorher eine andere gewählt war, und das Profil des Kontos bleibt erhalten (eine Sprachwahl ist keine Profiländerung, ein leeres lokales Profil gewinnt nie gegen das des Kontos)
 
 #### Scenario: Neues Konto oder keine Sprache
 - **WHEN** ein Konto neu angelegt wird oder noch keine Sprache hat
@@ -50,4 +58,4 @@ Die App SHALL die im Konto gespeicherte Sprache übernehmen und SHALL Sprachwech
 
 #### Scenario: Auf anderem Gerät geändert
 - **WHEN** die App mit Session startet und `GET /me` eine andere Sprache liefert als die lokale
-- **THEN** übernimmt die App die Kontosprache; ein Wechsel unter „Ich" wird weiter per PUT /me/settings gespeichert
+- **THEN** übernimmt die App die Kontosprache, außer der Nutzer hat inzwischen selbst gewählt; ein Wechsel unter „Ich" wird weiter per PUT /me/settings gespeichert
