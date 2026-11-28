@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useAccount } from './account';
 import { SignIn } from './account-ui';
-import { API_URL, ApiError, call, getSession, loadMe, loadPeople, saveMe, savePeople, type Me, type Person } from './api';
+import { ApiError, call, getSession, loadMe, loadPeople, saveMe, savePeople, type Me, type Person } from './api';
+import { ACQUISITION_PATH, AUDIT_PATH, COSTS_PATH, RESULTS_PATH, USERS_LIMIT, clearCache, prefetch, preloadOverviews, refreshCached, useGet, usersPath } from './admin-data.web';
+import { Simulator, loadSimWidth, saveSimWidth, type Sim } from './admin-sim.web';
+import { DataTable, type Col } from './admin-table.web';
+import { Btn, Err, Loading, Pill, RED, SOFT, errText, s, statusColor, useNarrow, when } from './admin-ui.web';
 import { getLanguage, setLanguage, type Lang } from './i18n';
-import { clearImpersonation } from './impersonation';
 import { C, F } from './theme';
 
-// The admin console at /admin, web only; see openspec/changes/admin-console (design.md, API contract in section 1).
+// The admin console at /admin, web only; see openspec/changes/admin-console (design.md, API contract in section 1)
+// and admin-ux (side navigation, tables, docked simulator, preloading).
 // Plain DOM (tables, iframe) in the Wishfit look, denser than the app. The admin signs in like any user; the
 // console itself never writes to the app's storage, the simulator keeps its own area in sessionStorage.
 
@@ -31,97 +35,9 @@ type ResultRow = { id: string; created_at: string; user_id?: string; email?: str
 type UserDetail = { user: UserRow & { signup_source?: Record<string, string> | null }; data: { people?: unknown; profile?: unknown; updated_at?: string | null } | null; devices: Device[]; results: ResultRow[] };
 type Audit = { at: string; admin_email: string; action: string; target_user_id?: string | null; detail?: unknown };
 type Acquisition = { by_source: { source: string; medium?: string | null; campaign?: string | null; users: number }[]; top_referrers: { user_id: string; email: string; referrals: number }[] };
-type Sim = { token: string; user: { id: string; email: string; language?: string | null }; expires_at: string };
-
 type Tab = 'users' | 'results' | 'acquisition' | 'costs' | 'tools' | 'audit';
 type Page = { tab: Tab; userId?: string; resultId?: string };
 
-const RED = '#d92d20';
-const LINE = '#e6e6e9';
-const SOFT = '#f6f6f7';
-
-const when = (iso?: string | null) => {
-  if (!iso) return '–';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(getLanguage() === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' });
-};
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-// One GET with loading and error state; reload() asks again
-function useGet<T>(path: string | null) {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    if (!path) return;
-    let live = true;
-    setError(null);
-    call<T>('GET', path)
-      .then((r) => live && setData(r))
-      .catch((e) => live && setError(errText(e)));
-    return () => {
-      live = false;
-    };
-  }, [path, n]);
-  return { data, error, reload: () => setN((x) => x + 1) };
-}
-
-const s = {
-  page: { height: '100vh', overflow: 'auto', background: C.paper, color: C.ink, fontFamily: F.text, fontSize: 14 } as CSSProperties,
-  wrap: { maxWidth: 1280, margin: '0 auto', padding: '16px 16px 48px' } as CSSProperties,
-  h1: { fontFamily: F.display, fontSize: 26, margin: 0, letterSpacing: -0.5 } as CSSProperties,
-  h2: { fontFamily: F.display, fontSize: 20, margin: '20px 0 8px' } as CSSProperties,
-  mono: { fontFamily: F.mono, fontSize: 12 } as CSSProperties,
-  mute: { color: C.mute } as CSSProperties,
-  tableBox: { overflowX: 'auto', border: `1.5px solid ${C.ink}`, borderRadius: 12 } as CSSProperties,
-  table: { borderCollapse: 'collapse', width: '100%', minWidth: 720 } as CSSProperties,
-  th: { textAlign: 'left', fontFamily: F.semi, fontSize: 12, color: C.mute, padding: '8px 10px', borderBottom: `1.5px solid ${C.ink}`, background: SOFT, whiteSpace: 'nowrap' } as CSSProperties,
-  td: { padding: '7px 10px', borderBottom: `1px solid ${LINE}`, verticalAlign: 'top' } as CSSProperties,
-  num: { padding: '7px 10px', borderBottom: `1px solid ${LINE}`, textAlign: 'right', fontFamily: F.mono, fontSize: 12 } as CSSProperties,
-  input: { fontFamily: F.text, fontSize: 14, padding: '9px 12px', border: `1.5px solid ${C.ink}`, borderRadius: 999, outline: 'none', width: '100%', maxWidth: 360, boxSizing: 'border-box' } as CSSProperties,
-  card: { border: `1.5px solid ${C.ink}`, borderRadius: 12, padding: 14 } as CSSProperties,
-};
-
-const Btn = ({ children, onClick, primary, danger, disabled, testId }: { children: ReactNode; onClick: () => void; primary?: boolean; danger?: boolean; disabled?: boolean; testId?: string }) => (
-  <button
-    data-testid={testId}
-    disabled={disabled}
-    onClick={onClick}
-    style={{
-      fontFamily: F.semi,
-      fontSize: 13,
-      padding: '8px 14px',
-      borderRadius: 999,
-      border: `1.5px solid ${danger ? RED : C.ink}`,
-      background: danger ? RED : primary ? C.ink : C.paper,
-      color: danger || primary ? C.paper : C.ink,
-      cursor: disabled ? 'default' : 'pointer',
-      opacity: disabled ? 0.4 : 1,
-      whiteSpace: 'nowrap',
-    }}
-  >
-    {children}
-  </button>
-);
-const Err = ({ text }: { text: string | null }) => (text ? <p style={{ color: RED, margin: '8px 0' }}>{text}</p> : null);
-const Loading = () => <p style={s.mute}>Loading…</p>;
-const Pill = ({ children, color = SOFT }: { children: ReactNode; color?: string }) => (
-  <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, background: color, border: `1px solid ${C.ink}`, fontSize: 12, fontFamily: F.semi, whiteSpace: 'nowrap' }}>{children}</span>
-);
-const statusColor = (st: string) => (st === 'ok' || st === 'done' ? C.mint : st === 'error' || st === 'failed' ? C.tomato : C.lemon);
-
-function Table({ head, children, testId }: { head: string[]; children: ReactNode; testId?: string }) {
-  return (
-    <div style={s.tableBox}>
-      <table data-testid={testId} style={s.table}>
-        <thead>
-          <tr>{head.map((h, i) => <th key={i} style={s.th}>{h}</th>)}</tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
 
 // A trace or any JSON, readable as a tree: objects and arrays fold open, the first `open` levels are open
 function JsonTree({ value, name, depth = 0, open = 2 }: { value: unknown; name?: string; depth?: number; open?: number }) {
@@ -148,6 +64,20 @@ function JsonTree({ value, name, depth = 0, open = 2 }: { value: unknown; name?:
 }
 
 const sourceOf = (u: UserRow) => u.source ?? (u.referred_by_email ? 'referral' : 'direct');
+const dash = <span style={s.mute}>–</span>;
+
+const userCols: Col<UserRow>[] = [
+  { key: 'email', label: 'E-mail', get: (u) => u.email, weight: 2.6, min: 150, render: (u) => <span style={{ fontFamily: F.semi }}>{u.email}</span> },
+  { key: 'created', label: 'Created', get: (u) => u.created_at, weight: 1.4, min: 105, filter: 'date', render: (u) => when(u.created_at) },
+  { key: 'seen', label: 'Last seen', get: (u) => u.last_seen_at, weight: 1.4, min: 105, filter: 'date', render: (u) => when(u.last_seen_at) },
+  { key: 'source', label: 'Source', get: sourceOf, weight: 1.1, min: 80, filter: 'select', render: (u) => <Pill>{sourceOf(u)}</Pill> },
+  { key: 'invited', label: 'Invited by', get: (u) => u.referred_by_email, weight: 2, min: 110, render: (u) => u.referred_by_email ?? dash },
+  { key: 'brought', label: 'Brought', get: (u) => u.referrals ?? 0, num: true, min: 62 },
+  { key: 'people', label: 'People', get: (u) => u.people, num: true, min: 58 },
+  { key: 'wishes', label: 'Wishes', get: (u) => u.wishes, num: true, min: 58 },
+  { key: 'devices', label: 'Devices', get: (u) => u.devices, num: true, min: 60 },
+  { key: 'results', label: 'Results', get: (u) => u.results, num: true, min: 60 },
+];
 
 function Users({ open }: { open: (p: Page) => void }) {
   const [query, setQuery] = useState('');
@@ -160,38 +90,33 @@ function Users({ open }: { open: (p: Page) => void }) {
     }, 300);
     return () => clearTimeout(t);
   }, [query]);
-  const { data, error } = useGet<{ users: UserRow[]; total: number }>(`/admin/users?query=${encodeURIComponent(q)}&limit=50&offset=${offset}`);
+  const { data, error } = useGet<{ users: UserRow[]; total: number }>(usersPath(q, offset));
   return (
     <>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', margin: '4px 0 12px' }}>
-        <input data-testid="user-search" placeholder="Search e-mail" value={query} onChange={(e) => setQuery(e.target.value)} style={s.input} />
+        <input data-testid="user-search" placeholder="Search e-mail on the server" value={query} onChange={(e) => setQuery(e.target.value)} style={s.input} />
         {data && <span style={s.mute}>{data.total} users</span>}
       </div>
       <Err text={error} />
       {!data && !error ? (
         <Loading />
       ) : data ? (
-        <Table testId="users" head={['E-mail', 'Created', 'Last seen', 'Source', 'Invited by', 'Brought', 'People', 'Wishes', 'Devices', 'Results']}>
-          {data.users.map((u) => (
-            <tr key={u.id} data-testid="user-row" onClick={() => open({ tab: 'users', userId: u.id })} style={{ cursor: 'pointer' }}>
-              <td style={{ ...s.td, fontFamily: F.semi }}>{u.email}</td>
-              <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{when(u.created_at)}</td>
-              <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{when(u.last_seen_at)}</td>
-              <td style={s.td}><Pill>{sourceOf(u)}</Pill></td>
-              <td style={s.td}>{u.referred_by_email ?? <span style={s.mute}>–</span>}</td>
-              <td style={s.num}>{u.referrals ?? 0}</td>
-              <td style={s.num}>{u.people}</td>
-              <td style={s.num}>{u.wishes}</td>
-              <td style={s.num}>{u.devices}</td>
-              <td style={s.num}>{u.results}</td>
-            </tr>
-          ))}
-        </Table>
+        <DataTable
+          testId="users"
+          rowTestId="user-row"
+          rows={data.users}
+          cols={userCols}
+          rowKey={(u) => u.id}
+          onRow={(u) => open({ tab: 'users', userId: u.id })}
+          onHover={(u) => prefetch(`/admin/users/${encodeURIComponent(u.id)}`)}
+          placeholder="Filter this list"
+        />
       ) : null}
-      {data && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <Btn disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</Btn>
-          <Btn disabled={offset + 50 >= data.total} onClick={() => setOffset(offset + 50)}>Next</Btn>
+      {data && data.total > USERS_LIMIT && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+          <Btn disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - USERS_LIMIT))}>Previous</Btn>
+          <Btn disabled={offset + USERS_LIMIT >= data.total} onClick={() => setOffset(offset + USERS_LIMIT)}>Next</Btn>
+          <span style={{ ...s.mute, fontSize: 12 }}>Sorting and filters apply to this page of {USERS_LIMIT}.</span>
         </div>
       )}
     </>
@@ -199,21 +124,23 @@ function Users({ open }: { open: (p: Page) => void }) {
 }
 
 function ResultsTable({ rows, open, withUser }: { rows: ResultRow[]; open: (id: string) => void; withUser?: boolean }) {
-  return (
-    <Table testId="results" head={['Created', ...(withUser ? ['User'] : []), 'Status', 'Model', 'Duration', 'Error']}>
-      {rows.map((r) => (
-        <tr key={r.id} data-testid="result-row" onClick={() => open(r.id)} style={{ cursor: 'pointer' }}>
-          <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{when(r.created_at)}</td>
-          {withUser && <td style={s.td}>{r.email ?? r.user_id ?? '–'}</td>}
-          <td style={s.td}><Pill color={statusColor(r.status)}>{r.status}</Pill></td>
-          <td style={{ ...s.td, ...s.mono }}>{r.model ?? '–'}</td>
-          <td style={s.num}>{r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)} s` : '–'}</td>
-          <td style={{ ...s.td, color: RED, maxWidth: 320 }}>{r.error ?? ''}</td>
-        </tr>
-      ))}
-    </Table>
-  );
+  const cols: Col<ResultRow>[] = [
+    { key: 'created', label: 'Created', get: (r) => r.created_at, weight: 1.4, min: 105, filter: 'date', render: (r) => when(r.created_at) },
+    ...(withUser ? [{ key: 'user', label: 'User', get: (r: ResultRow) => r.email ?? r.user_id, weight: 2.2, min: 120 }] : []),
+    { key: 'status', label: 'Status', get: (r) => r.status, weight: 1.1, min: 80, filter: 'select', render: (r) => <Pill color={statusColor(r.status)}>{r.status}</Pill> },
+    { key: 'model', label: 'Model', get: (r) => r.model, weight: 1.8, min: 100, mono: true, filter: 'select' },
+    { key: 'duration', label: 'Duration', get: (r) => r.duration_ms, num: true, min: 72, render: (r) => (r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)} s` : '–') },
+    { key: 'error', label: 'Error', get: (r) => r.error, weight: 3, min: 120, render: (r) => <span style={{ color: RED }}>{r.error ?? ''}</span> },
+  ];
+  return <DataTable testId="results" rowTestId="result-row" rows={rows} cols={cols} rowKey={(r) => r.id} onRow={(r) => open(r.id)} onHover={(r) => prefetch(`/admin/results/${encodeURIComponent(r.id)}`)} />;
 }
+
+const deviceCols: Col<Device>[] = [
+  { key: 'token', label: 'Token', get: (d) => `…${d.token_tail}`, mono: true, min: 80 },
+  { key: 'platform', label: 'Platform', get: (d) => d.platform, filter: 'select', min: 80 },
+  { key: 'added', label: 'Added', get: (d) => d.created_at, filter: 'date', min: 105, weight: 1.4, render: (d) => when(d.created_at) },
+  { key: 'ok', label: 'Last delivered', get: (d) => d.last_ok_at, min: 105, weight: 1.4, render: (d) => when(d.last_ok_at) },
+];
 
 function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) => void; simulate: (sim: Sim) => void }) {
   const { data, error } = useGet<UserDetail>(`/admin/users/${encodeURIComponent(id)}`);
@@ -227,7 +154,10 @@ function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) =>
     setBusy('push');
     setNote(null);
     call<{ sent: number; devices: number }>('POST', '/admin/push-test', { user_id: u.id })
-      .then((r) => setNote(`Test push sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.`))
+      .then((r) => {
+        setNote(`Test push sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.`);
+        refreshCached(['/admin/audit', `/admin/users/${encodeURIComponent(u.id)}`]);
+      })
       .catch((e) => setNote(errText(e)))
       .finally(() => setBusy(null));
   };
@@ -235,7 +165,10 @@ function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) =>
     setBusy('imp');
     setNote(null);
     call<Sim>('POST', '/admin/impersonate', { user_id: u.id })
-      .then(simulate)
+      .then((r) => {
+        simulate(r);
+        refreshCached(['/admin/audit']);
+      })
       .catch((e) => setNote(errText(e)))
       .finally(() => setBusy(null));
   };
@@ -285,20 +218,7 @@ function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) =>
         </div>
       </div>
       <h2 style={s.h2}>Devices</h2>
-      {data.devices.length === 0 ? (
-        <p style={s.mute}>No devices.</p>
-      ) : (
-        <Table head={['Token', 'Platform', 'Added', 'Last delivered']}>
-          {data.devices.map((d) => (
-            <tr key={d.token_tail + d.created_at}>
-              <td style={{ ...s.td, ...s.mono }}>…{d.token_tail}</td>
-              <td style={s.td}>{d.platform}</td>
-              <td style={s.td}>{when(d.created_at)}</td>
-              <td style={s.td}>{when(d.last_ok_at)}</td>
-            </tr>
-          ))}
-        </Table>
-      )}
+      {data.devices.length === 0 ? <p style={s.mute}>No devices.</p> : <DataTable testId="devices" rows={data.devices} cols={deviceCols} rowKey={(d) => d.token_tail + d.created_at} />}
       <h2 style={s.h2}>Results</h2>
       {data.results.length === 0 ? <p style={s.mute}>No results.</p> : <ResultsTable rows={data.results} open={(rid) => open({ tab: 'results', resultId: rid })} />}
       <h2 style={s.h2}>Data</h2>
@@ -309,8 +229,9 @@ function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) =>
   );
 }
 
+
 function Results({ open }: { open: (p: Page) => void }) {
-  const { data, error } = useGet<{ results: ResultRow[] }>('/admin/results?limit=50');
+  const { data, error } = useGet<{ results: ResultRow[] }>(RESULTS_PATH);
   if (error) return <Err text={error} />;
   if (!data) return <Loading />;
   return <ResultsTable withUser rows={data.results} open={(id) => open({ tab: 'results', resultId: id })} />;
@@ -342,35 +263,31 @@ function ResultView({ id, back }: { id: string; back: () => void }) {
   );
 }
 
+
+const sourceCols: Col<Acquisition['by_source'][number]>[] = [
+  { key: 'source', label: 'Source', get: (r) => r.source, filter: 'select', min: 90, render: (r) => <Pill>{r.source}</Pill> },
+  { key: 'medium', label: 'Medium', get: (r) => r.medium, min: 70 },
+  { key: 'campaign', label: 'Campaign', get: (r) => r.campaign, min: 80 },
+  { key: 'users', label: 'Users', get: (r) => r.users, num: true, min: 56, weight: 0.7 },
+];
+const inviterCols: Col<Acquisition['top_referrers'][number]>[] = [
+  { key: 'email', label: 'User', get: (r) => r.email, weight: 3, min: 120 },
+  { key: 'brought', label: 'Brought', get: (r) => r.referrals, num: true, min: 62, weight: 0.8 },
+];
+
 function AcquisitionView({ open }: { open: (p: Page) => void }) {
-  const { data, error } = useGet<Acquisition>('/admin/acquisition');
+  const { data, error } = useGet<Acquisition>(ACQUISITION_PATH);
   if (error) return <Err text={error} />;
   if (!data) return <Loading />;
   return (
-    <div data-testid="acquisition" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16 }}>
-      <div>
+    <div data-testid="acquisition" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 16 }}>
+      <div style={{ minWidth: 0 }}>
         <h2 style={{ ...s.h2, marginTop: 0 }}>By source</h2>
-        <Table head={['Source', 'Medium', 'Campaign', 'Users']}>
-          {data.by_source.map((r, i) => (
-            <tr key={i}>
-              <td style={s.td}><Pill>{r.source}</Pill></td>
-              <td style={s.td}>{r.medium ?? '–'}</td>
-              <td style={s.td}>{r.campaign ?? '–'}</td>
-              <td style={s.num}>{r.users}</td>
-            </tr>
-          ))}
-        </Table>
+        <DataTable testId="by-source" rows={data.by_source} cols={sourceCols} rowKey={(_, i) => String(i)} />
       </div>
-      <div>
+      <div style={{ minWidth: 0 }}>
         <h2 style={{ ...s.h2, marginTop: 0 }}>Top inviters</h2>
-        <Table head={['User', 'Brought']}>
-          {data.top_referrers.map((r) => (
-            <tr key={r.user_id} onClick={() => open({ tab: 'users', userId: r.user_id })} style={{ cursor: 'pointer' }}>
-              <td style={s.td}>{r.email}</td>
-              <td style={s.num}>{r.referrals}</td>
-            </tr>
-          ))}
-        </Table>
+        <DataTable testId="inviters" rows={data.top_referrers} cols={inviterCols} rowKey={(r) => r.user_id} onRow={(r) => open({ tab: 'users', userId: r.user_id })} onHover={(r) => prefetch(`/admin/users/${encodeURIComponent(r.user_id)}`)} />
       </div>
     </div>
   );
@@ -386,8 +303,26 @@ const SOURCE_COLOR: Record<string, string> = { model: C.lemon, apify: '#b9e3ff',
 const usd = (n: number) => `${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 4 : 2 })} $`;
 const LOW_APIFY_USD = 1;
 
+const costUserCols: Col<Costs['by_user'][number]>[] = [
+  { key: 'user', label: 'User', get: (u) => u.email ?? u.user_id, weight: 3, min: 120 },
+  { key: 'cost', label: 'Cost', get: (u) => u.usd, num: true, min: 80, render: (u) => usd(u.usd) },
+];
+const apifyCols: Col<Costs['apify_accounts'][number]>[] = [
+  { key: 'account', label: 'Account', get: (a) => a.account, weight: 2, min: 90 },
+  { key: 'used', label: 'Used', get: (a) => a.used_usd, num: true, min: 70, render: (a) => (a.used_usd == null ? '–' : usd(a.used_usd)) },
+  { key: 'remaining', label: 'Remaining', get: (a) => a.remaining_usd, num: true, min: 80, render: (a) => (a.remaining_usd == null ? '–' : usd(a.remaining_usd)) },
+  {
+    key: 'note',
+    label: 'Note',
+    get: (a) => a.error ?? (a.remaining_usd != null && a.remaining_usd < LOW_APIFY_USD ? 'under 1 $, top up' : ''),
+    weight: 2,
+    min: 90,
+    render: (a) => (a.error ? <Pill>{a.error}</Pill> : a.remaining_usd != null && a.remaining_usd < LOW_APIFY_USD ? <Pill>under 1 $, top up</Pill> : null),
+  },
+];
+
 function CostsView({ open }: { open: (p: Page) => void }) {
-  const { data, error } = useGet<Costs>('/admin/costs?days=30');
+  const { data, error } = useGet<Costs>(COSTS_PATH);
   if (error) return <Err text={error} />;
   if (!data) return <Loading />;
   const days = Array.from(new Set(data.daily.map((d) => d.day))).slice(-30);
@@ -422,33 +357,14 @@ function CostsView({ open }: { open: (p: Page) => void }) {
           <span key={src} style={{ fontSize: 12 }}><span style={{ display: 'inline-block', width: 10, height: 10, background: SOURCE_COLOR[src] ?? SOFT, border: `1px solid ${C.ink}`, marginRight: 4 }} />{src}</span>
         ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16 }}>
-        <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 16 }}>
+        <div style={{ minWidth: 0 }}>
           <h2 style={s.h2}>Per user (30 days)</h2>
-          <Table testId="costs-users" head={['User', 'Cost']}>
-            {data.by_user.map((u) => (
-              <tr key={u.user_id} onClick={() => open({ tab: 'users', userId: u.user_id })} style={{ cursor: 'pointer' }}>
-                <td style={s.td}>{u.email ?? u.user_id}</td>
-                <td style={s.num}>{usd(u.usd)}</td>
-              </tr>
-            ))}
-          </Table>
+          <DataTable testId="costs-users" rows={data.by_user} cols={costUserCols} rowKey={(u) => u.user_id} onRow={(u) => open({ tab: 'users', userId: u.user_id })} onHover={(u) => prefetch(`/admin/users/${encodeURIComponent(u.user_id)}`)} />
         </div>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <h2 style={s.h2}>Apify accounts</h2>
-          <Table testId="costs-apify" head={['Account', 'Used', 'Remaining', '']}>
-            {data.apify_accounts.map((a) => {
-              const low = a.remaining_usd != null && a.remaining_usd < LOW_APIFY_USD;
-              return (
-                <tr key={a.account}>
-                  <td style={s.td}>{a.account}</td>
-                  <td style={s.num}>{a.used_usd == null ? '–' : usd(a.used_usd)}</td>
-                  <td style={s.num}>{a.remaining_usd == null ? '–' : usd(a.remaining_usd)}</td>
-                  <td style={s.td}>{a.error ? <Pill>{a.error}</Pill> : low ? <Pill>under 1 $, top up</Pill> : null}</td>
-                </tr>
-              );
-            })}
-          </Table>
+          <DataTable testId="costs-apify" rows={data.apify_accounts} cols={apifyCols} rowKey={(a) => a.account} />
         </div>
       </div>
     </div>
@@ -463,7 +379,10 @@ function Tools() {
     setBusy(true);
     setError(null);
     call('POST', '/admin/cron')
-      .then(setOut)
+      .then((r) => {
+        setOut(r);
+        refreshCached(['/admin/audit', '/admin/users', '/admin/results', '/admin/costs']);
+      })
       .catch((e) => setError(errText(e)))
       .finally(() => setBusy(false));
   };
@@ -482,94 +401,19 @@ function Tools() {
   );
 }
 
+const auditCols: Col<Audit>[] = [
+  { key: 'at', label: 'When', get: (a) => a.at, weight: 1.4, min: 105, filter: 'date', render: (a) => when(a.at) },
+  { key: 'admin', label: 'Admin', get: (a) => a.admin_email, weight: 2, min: 110, filter: 'select' },
+  { key: 'action', label: 'Action', get: (a) => a.action, weight: 1.6, min: 100, filter: 'select', render: (a) => <Pill>{a.action}</Pill> },
+  { key: 'user', label: 'User', get: (a) => a.target_user_id, weight: 2, min: 100, mono: true },
+  { key: 'detail', label: 'Detail', get: (a) => (a.detail == null ? '' : JSON.stringify(a.detail)), weight: 3, min: 120, mono: true },
+];
+
 function AuditView() {
-  const { data, error } = useGet<{ entries: Audit[] }>('/admin/audit?limit=100');
+  const { data, error } = useGet<{ entries: Audit[] }>(AUDIT_PATH);
   if (error) return <Err text={error} />;
   if (!data) return <Loading />;
-  return (
-    <Table testId="audit" head={['When', 'Admin', 'Action', 'User', 'Detail']}>
-      {data.entries.map((a, i) => (
-        <tr key={i}>
-          <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{when(a.at)}</td>
-          <td style={s.td}>{a.admin_email}</td>
-          <td style={s.td}><Pill>{a.action}</Pill></td>
-          <td style={{ ...s.td, ...s.mono }}>{a.target_user_id ?? '–'}</td>
-          <td style={{ ...s.td, ...s.mono, maxWidth: 380, wordBreak: 'break-word' }}>{a.detail == null ? '' : JSON.stringify(a.detail)}</td>
-        </tr>
-      ))}
-    </Table>
-  );
-}
-
-// The user's app in an iPhone frame. The token goes in the fragment (never sent to a server, removed by the
-// app at once); the app inside keeps its data in sessionStorage under wishfit:imp:<userId>:
-function Simulator({ sim, close }: { sim: Sim; close: () => void }) {
-  const [fit, setFit] = useState(1);
-  const [expired, setExpired] = useState(false);
-  const released = useRef(false);
-  // ends the session on the server and forgets the view's data; also when the simulator goes away without End
-  // (another page in the console, a closed tab), so no token outlives it in this tab
-  const release = useCallback(() => {
-    if (released.current) return;
-    released.current = true;
-    fetch(`${API_URL}/admin/impersonate`, { method: 'DELETE', headers: { Authorization: `Bearer ${sim.token}` }, keepalive: true }).catch(() => {});
-    clearImpersonation(`wishfit:imp:${sim.user.id}:`);
-  }, [sim]);
-  const end = useCallback(() => {
-    release();
-    close();
-  }, [release, close]);
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      const data = e.data as { type?: string; reason?: string } | null;
-      if (e.origin !== window.location.origin || data?.type !== 'wishfit-imp-end' || released.current) return;
-      if (data.reason === 'expired') {
-        // the server no longer takes the session: say so instead of closing without a word
-        release();
-        setExpired(true);
-      } else end();
-    };
-    const onResize = () => setFit(Math.min(1, (window.innerHeight - 110) / 868, (window.innerWidth - 24) / 414));
-    onResize();
-    window.addEventListener('message', onMessage);
-    window.addEventListener('resize', onResize);
-    window.addEventListener('pagehide', release);
-    return () => {
-      window.removeEventListener('message', onMessage);
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('pagehide', release);
-    };
-  }, [end, release]);
-  useEffect(() => release, [release]);
-  const hash = new URLSearchParams({ t: sim.token, u: sim.user.id, e: sim.user.email, l: sim.user.language === 'de' ? 'de' : 'en' });
-  return (
-    <div data-testid="simulator" style={{ position: 'fixed', inset: 0, background: 'rgba(11,11,12,0.72)', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', color: C.paper, flexWrap: 'wrap', justifyContent: 'center' }}>
-        <span style={{ fontFamily: F.semi }}>Viewing as {sim.user.email}</span>
-        <span style={{ ...s.mono, opacity: 0.7 }}>until {when(sim.expires_at)}</span>
-        <Btn testId="sim-end" danger onClick={end}>End view</Btn>
-      </div>
-      {expired ? (
-        <div data-testid="sim-expired" style={{ ...s.card, background: C.paper, maxWidth: 360, margin: 24 }}>
-          <div style={{ fontFamily: F.display, fontSize: 20 }}>View expired</div>
-          <p style={{ ...s.mute, margin: '6px 0 12px' }}>The session for {sim.user.email} has ended (views last 30 minutes). Start it again from the user.</p>
-          <Btn primary onClick={close}>Close</Btn>
-        </div>
-      ) : (
-        <div style={{ width: 414 * fit, height: 868 * fit }}>
-          <div style={{ width: 414, height: 868, transform: `scale(${fit})`, transformOrigin: 'top left', borderRadius: 64, background: C.ink, padding: 12, boxSizing: 'border-box', position: 'relative', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
-            <iframe
-              data-testid="sim-frame"
-              title={`Wishfit as ${sim.user.email}`}
-              src={`/?imp=1#${hash.toString()}`}
-              style={{ width: 390, height: 844, border: 0, borderRadius: 52, background: C.paper, display: 'block' }}
-            />
-            <div style={{ position: 'absolute', top: 22, left: '50%', marginLeft: -62, width: 124, height: 34, borderRadius: 20, background: C.ink, pointerEvents: 'none' }} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <DataTable testId="audit" rows={data.entries} cols={auditCols} rowKey={(_, i) => String(i)} />;
 }
 
 // Signing in to the console is the app's own sign-in (same session, same rule for the device's data)
@@ -605,12 +449,37 @@ const TABS: [Tab, string][] = [
   ['audit', 'Audit'],
 ];
 
+function SideNav({ page, go, email }: { page: Page; go: (tab: Tab) => void; email: string }) {
+  return (
+    <nav data-testid="sidenav" style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 12, height: '100%', boxSizing: 'border-box' }}>
+      <h1 style={{ ...s.h1, fontSize: 22, padding: '4px 8px 12px' }}>
+        wishfit<span style={{ color: C.tomato }}>.</span> <span style={{ fontFamily: F.mono, fontSize: 12, color: C.mute, letterSpacing: 0 }}>admin</span>
+      </h1>
+      {TABS.map(([tab, label]) => (
+        <button
+          key={tab}
+          data-testid={`tab-${tab}`}
+          aria-current={page.tab === tab ? 'page' : undefined}
+          onClick={() => go(tab)}
+          style={{ textAlign: 'left', fontFamily: F.semi, fontSize: 14, padding: '9px 12px', borderRadius: 10, border: `1.5px solid ${page.tab === tab ? C.ink : 'transparent'}`, background: page.tab === tab ? C.lemon : 'transparent', cursor: 'pointer', fontWeight: page.tab === tab && !page.userId && !page.resultId ? 700 : 400 }}
+        >
+          {label}
+        </button>
+      ))}
+      <span style={{ ...s.mono, ...s.mute, marginTop: 'auto', padding: 8, wordBreak: 'break-all' }}>{email}</span>
+    </nav>
+  );
+}
+
 export function AdminConsole() {
   const [state, setState] = useState<'check' | 'signin' | 'denied' | 'ok' | 'error'>(() => (getSession() ? 'check' : 'signin'));
   const [email, setEmail] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [page, setPage] = useState<Page>({ tab: 'users' });
   const [sim, setSim] = useState<Sim | null>(null);
+  const [simWidth, setSimWidth] = useState(loadSimWidth);
+  const [menu, setMenu] = useState(false);
+  const narrow = useNarrow();
 
   useEffect(() => {
     document.title = 'Wishfit Admin';
@@ -623,10 +492,13 @@ export function AdminConsole() {
   }, []);
   useEffect(() => {
     if (state !== 'check') return;
+    clearCache();
     call<{ email: string }>('GET', '/admin/me')
       .then((r) => {
         setEmail(r.email);
         setState('ok');
+        // every overview in parallel, so a switch between areas finds its data waiting
+        preloadOverviews();
       })
       .catch((e) => {
         if (e instanceof ApiError && e.status === 401) return setState('signin');
@@ -652,51 +524,57 @@ export function AdminConsole() {
       </div>
     );
 
+  const go = (tab: Tab) => {
+    setPage({ tab });
+    setMenu(false);
+  };
+  // the end of a view is written to the audit log by the server a moment after the call
+  const closeSim = () => {
+    setSim(null);
+    setTimeout(() => refreshCached(['/admin/audit', '/admin/users']), 500);
+  };
+  const changeWidth = (n: number) => {
+    setSimWidth(n);
+    saveSimWidth(n);
+  };
+
   return (
-    <div style={s.page} data-testid="admin-console">
-      <div style={{ borderBottom: `1.5px solid ${C.ink}`, position: 'sticky', top: 0, background: C.paper, zIndex: 2 }}>
-        <div style={{ ...s.wrap, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <h1 style={s.h1}>
-            wishfit<span style={{ color: C.tomato }}>.</span> <span style={{ fontFamily: F.mono, fontSize: 13, color: C.mute, letterSpacing: 0 }}>admin</span>
-          </h1>
-          <nav style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: '1 1 auto' }}>
-            {TABS.map(([tab, label]) => {
-              const on = page.tab === tab && !page.userId && !page.resultId;
-              return (
-                <button
-                  key={tab}
-                  data-testid={`tab-${tab}`}
-                  onClick={() => setPage({ tab })}
-                  style={{ fontFamily: F.semi, fontSize: 13, padding: '6px 12px', borderRadius: 999, border: `1.5px solid ${C.ink}`, background: page.tab === tab ? C.lemon : C.paper, cursor: 'pointer', fontWeight: on ? 700 : 400 }}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </nav>
-          <span style={{ ...s.mono, ...s.mute }}>{email}</span>
+    <div data-testid="admin-console" style={{ ...s.page, display: 'flex', overflow: 'hidden' }}>
+      {!narrow && <aside style={{ width: 200, flexShrink: 0, borderRight: `1.5px solid ${C.ink}`, overflowY: 'auto' }}><SideNav page={page} go={go} email={email} /></aside>}
+      {narrow && menu && (
+        <div data-testid="drawer" style={{ position: 'fixed', inset: 0, zIndex: 20, display: 'flex' }}>
+          <aside style={{ width: 240, maxWidth: '80vw', background: C.paper, borderRight: `1.5px solid ${C.ink}`, overflowY: 'auto' }}><SideNav page={page} go={go} email={email} /></aside>
+          <div onClick={() => setMenu(false)} style={{ flex: 1, background: 'rgba(11,11,12,0.45)' }} />
+        </div>
+      )}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', height: '100vh' }}>
+        {narrow && (
+          <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.paper, borderBottom: `1.5px solid ${C.ink}`, display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
+            <button data-testid="menu" aria-label="Menu" onClick={() => setMenu(true)} style={{ fontSize: 20, lineHeight: 1, padding: '4px 10px', borderRadius: 10, border: `1.5px solid ${C.ink}`, background: C.paper, cursor: 'pointer' }}>☰</button>
+            <span style={{ fontFamily: F.semi }}>{TABS.find(([t]) => t === page.tab)?.[1]}</span>
+          </div>
+        )}
+        <div style={{ ...s.wrap, maxWidth: 1400 }}>
+          {page.resultId ? (
+            <ResultView id={page.resultId} back={() => setPage(page.userId ? { tab: 'users', userId: page.userId } : { tab: page.tab })} />
+          ) : page.userId ? (
+            <UserDetailView id={page.userId} simulate={setSim} open={(p) => setPage(p.resultId ? { ...p, userId: page.userId } : p)} />
+          ) : page.tab === 'users' ? (
+            <Users open={setPage} />
+          ) : page.tab === 'results' ? (
+            <Results open={setPage} />
+          ) : page.tab === 'acquisition' ? (
+            <AcquisitionView open={setPage} />
+          ) : page.tab === 'costs' ? (
+            <CostsView open={setPage} />
+          ) : page.tab === 'tools' ? (
+            <Tools />
+          ) : (
+            <AuditView />
+          )}
         </div>
       </div>
-      <div style={s.wrap}>
-        {page.resultId ? (
-          <ResultView id={page.resultId} back={() => setPage(page.userId ? { tab: 'users', userId: page.userId } : { tab: page.tab })} />
-        ) : page.userId ? (
-          <UserDetailView id={page.userId} simulate={setSim} open={(p) => setPage(p.resultId ? { ...p, userId: page.userId } : p)} />
-        ) : page.tab === 'users' ? (
-          <Users open={setPage} />
-        ) : page.tab === 'results' ? (
-          <Results open={setPage} />
-        ) : page.tab === 'acquisition' ? (
-          <AcquisitionView open={setPage} />
-        ) : page.tab === 'costs' ? (
-          <CostsView open={setPage} />
-        ) : page.tab === 'tools' ? (
-          <Tools />
-        ) : (
-          <AuditView />
-        )}
-      </div>
-      {sim && <Simulator sim={sim} close={() => setSim(null)} />}
+      {sim && <Simulator sim={sim} close={closeSim} docked={!narrow} width={simWidth} onWidth={changeWidth} />}
     </div>
   );
 }
