@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, PanResponder, Pressable, ScrollView, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, Animated, Dimensions, Easing, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -71,9 +71,12 @@ function Wiggle({ style, children }: { style?: StyleProp<ViewStyle>; children: R
 // 1 People: the stack of tags
 export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: string; people: Person[]; onOpen: (p: Person) => void; onAdd: () => void; onMe: () => void; onSnap: () => void }) {
   const insets = useSafeAreaInsets();
+  // scrolls only when the content is taller than the screen; the header and the title stay put
+  const [box, setBox] = useState(0);
+  const [content, setContent] = useState(0);
   return (
-    <ScrollView contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
-      <TopBar left={<Text style={s.word}>{brand.toLowerCase()}</Text>} right={
+    <View style={{ flex: 1 }}>
+      <Header left={<Text style={s.word}>{brand.toLowerCase()}</Text>} right={
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Round icon="camera" label={t('snapProduct')} onPress={onSnap} />
             <Round icon="me" label={t('me')} onPress={onMe} />
@@ -81,7 +84,14 @@ export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: 
           </View>
         }
       />
-      <Text style={s.display}>{t('whoNext')}</Text>
+      <Text style={[s.display, pad, { zIndex: 1, paddingBottom: 4, backgroundColor: C.paper }]}>{t('whoNext')}</Text>
+    <ScrollView
+      scrollEnabled={content > box + 1}
+      bounces={content > box + 1}
+      onLayout={(e) => setBox(e.nativeEvent.layout.height)}
+      onContentSizeChange={(_w, h) => setContent(h)}
+      contentContainerStyle={[pad, { gap: 16, paddingTop: 8, paddingBottom: insets.bottom + 24 }]}
+    >
       <View style={{ marginTop: 4 }}>
         {people.map((p, i) => {
           const r = lastResult(p);
@@ -115,6 +125,7 @@ export function People({ brand, people, onOpen, onAdd, onMe, onSnap }: { brand: 
         {t('tagsLocal')}
       </Mono>
     </ScrollView>
+    </View>
   );
 }
 
@@ -664,7 +675,7 @@ export function Thread({
             multiline
             value={text}
             onChangeText={setText}
-            placeholder={empty ? t('placeholderFirst') : t('placeholderMore', { name: person.name })}
+            placeholder={empty ? t('placeholderFirst') : t('placeholderMore')}
             placeholderTextColor={C.mute}
             style={s.input}
           />
@@ -688,6 +699,7 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
   const [permission, ask] = useCameraPermissions();
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [facing, setFacing] = useState<'back' | 'front'>('back');
   useEffect(() => {
     if (permission && !permission.granted && permission.canAskAgain) ask();
   }, [permission?.status]);
@@ -734,7 +746,7 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
       <TopBar onBack={onBack} title={person ? t('snapFor', { name: person.name }) : t('snap')} />
       <Text style={s.display}>{t('seenGood')}</Text>
       <View style={{ flex: 1, borderWidth: 2, borderColor: C.ink, borderRadius: 28, backgroundColor: C.ink, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-        {permission?.granted && <CameraView ref={camera} facing="back" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />}
+        {permission?.granted && <CameraView ref={camera} facing={facing} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />}
         {/* the four lemon corners of the viewfinder */}
         {(['Top', 'Bottom'] as const).flatMap((v) =>
           (['Left', 'Right'] as const).map((h) => (
@@ -757,7 +769,9 @@ export function Snap({ person, people, onBack, onDone }: { person: Person | null
         <Pressable accessibilityRole="button" accessibilityLabel={t('takePhoto')} disabled={!permission?.granted} onPress={shoot} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 2, borderColor: C.ink, backgroundColor: C.lemon, alignItems: 'center', justifyContent: 'center', opacity: permission?.granted ? 1 : 0.4 }}>
           <View style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper }} />
         </Pressable>
-        <View style={{ flex: 1 }} />
+        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+          {permission?.granted && Platform.OS !== 'web' && <Round icon="flip" label={t('switchCamera')} size={52} onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} />}
+        </View>
       </View>
     </View>
   );
