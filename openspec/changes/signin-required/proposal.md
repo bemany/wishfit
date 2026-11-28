@@ -8,6 +8,7 @@ Esref (28.11.2026): Nutzer sollen sich direkt registrieren oder anmelden; die Ap
 - Ohne gültige Session zeigt die App nur den Anmelde-Bildschirm (auch nach Abmelden, Konto löschen oder abgelaufener Session/401). Deep Links (`/u/<slug>`, Push) werden gemerkt und nach der Anmeldung geöffnet; ein fremdes Profil darf vorher als Vorschau sichtbar sein, „Als Freund hinzufügen" verlangt Anmeldung.
 - Bestehende lokale Daten (Personen, Profil) werden beim ersten Anmelden mit dem Konto zusammengeführt (vorhandene Sync-Logik), nichts geht verloren.
 - Texte wie „Deine Anhänger bleiben auf diesem Handy" und „Anmelden und synchronisieren" entfallen bzw. werden zu Konto-Texten; unter „Ich" bleiben Abmelden und Konto löschen.
+- **Sprache gehört zum Konto** (Esref 28.11.2026): Beim Anmelden mit einem bestehenden Konto übernimmt die App dessen Sprache (`/auth/verify` liefert `user.language`), beim App-Start gleicht sie mit `GET /me` ab; neue Konten bekommen die App-Sprache per PUT /me/settings. Backend dafür ist mit PR #42 live.
 - Gilt für iOS und Web-App gleich.
 
 ## Impact
