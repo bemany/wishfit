@@ -107,6 +107,8 @@ export type Account = {
   deleteAccount: () => Promise<void>;
   // tells the account the app language, for push texts; does nothing when signed out
   saveLanguage: (lang: Lang) => void;
+  // resolves once the syncs queued so far are done, e.g. the first pull after signing in
+  settled: () => Promise<void>;
 };
 
 // a refusal with a readable reason, e.g. signing out before the last changes reached the account
@@ -127,7 +129,10 @@ const loadTombs = (): Tomb[] => {
 };
 
 // applyPeople changes the people synchronously through a ref in App, so parallel updates never overwrite each other
-export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Person[]) => Person[]) => void, setMe: (m: Me) => void, peopleRef: { current: Person[] }): Account {
+// adoptLanguage: the language stored in the account wins over this device's, see openspec/changes/signin-required
+export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Person[]) => Person[]) => void, setMe: (m: Me) => void, peopleRef: { current: Person[] }, adoptLanguage: (lang: Lang) => void): Account {
+  const adopt = useRef(adoptLanguage);
+  adopt.current = adoptLanguage;
   const [session, setSessionState] = useState<Session | null>(getSession);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -260,9 +265,15 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setSessionLostHandler(() => drop());
   }, [drop]);
 
-  // app start: pull the account once and refresh the push token, which can change
+  // app start: pull the account once and refresh the push token, which can change. The account language
+  // may have been changed on another device
   useEffect(() => {
     if (!getSession()) return;
+    call<{ language?: string | null }>('GET', '/me')
+      .then((r) => {
+        if (getSession() && isLang(r?.language) && r.language !== getLanguage()) adopt.current(r.language);
+      })
+      .catch(() => {});
     sync(true);
     registerPush().catch(() => {});
   }, []);
@@ -303,13 +314,16 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     setDevCode(r?.dev_code ?? null);
   };
   const verify = async (email: string, code: string) => {
-    const r = await call<{ token: string; user: { email: string } }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim() }, false);
+    const r = await call<{ token: string; user: { email: string; language?: string | null }; created?: boolean }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim() }, false);
     const next: Session = { token: r.token, email: r.user.email };
     reset();
     setNotStored(!setSession(next));
     setSessionState(next);
     setDevCode(null);
-    saveLanguage(getLanguage());
+    // an existing account brings its language to this device; a new one (or one without) takes the app's
+    if (r.created === false && isLang(r.user.language)) {
+      if (r.user.language !== getLanguage()) adopt.current(r.user.language);
+    } else saveLanguage(getLanguage());
     // notifications allowed earlier, e.g. in the onboarding, start now
     registerPush().catch(() => {});
     sync(true);
@@ -339,5 +353,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     drop(true);
   };
 
-  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage };
+  const settled = () => queue.current.then(() => {}, () => {});
+
+  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage, settled };
 }
