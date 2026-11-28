@@ -8,5 +8,5 @@
 - [x] 2.3 Platzhalter ohne gequetschte Wortabstände (Ursache finden)
 
 ## 3. Prüfung
-- [ ] 3.1 Backend deployt, eine echte Mail an Esref (esref@bemany.de) auf Deutsch
+- [x] 3.1 Backend deployt, eine echte Mail an Esref (esref@bemany.de) auf Deutsch
 - [ ] 3.2 Simulator: Anmelden, Vorder/Hintergrund-Wechsel ohne neue Registrierung, Platzhalter
