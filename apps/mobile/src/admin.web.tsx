@@ -486,7 +486,7 @@ function Simulator({ sim, close }: { sim: Sim; close: () => void }) {
               style={{ width: 390, height: 844, border: 0, borderRadius: 52, background: C.paper, display: 'block' }}
             />
             <div style={{ position: 'absolute', top: 22, left: '50%', marginLeft: -62, width: 124, height: 34, borderRadius: 20, background: C.ink, pointerEvents: 'none' }} />
-        </div>
+          </div>
         </div>
       )}
     </div>
