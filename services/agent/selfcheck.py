@@ -155,6 +155,21 @@ r = api.post("/recommend", json={"wishes": [], "budget_eur": 10, "occasion": "x"
 assert r.status_code == 422 and isinstance(r.json()["detail"], str)
 assert api.get("/results/r_missing").status_code == 404 and api.get("/trace/r_missing").status_code == 404
 print("errors  ok: 502 missing key, 502 invalid JSON twice, 502 idealo MCP missing, 422, 404")
+# --- sign-in mail: language and HTML part, sent through a stubbed Resend call
+import mail
+
+sent = []
+os.environ["RESEND_API_KEY"] = "selfcheck"
+mail.httpx.post = lambda url, **kw: (sent.append(kw["json"]), SimpleNamespace(status_code=200))[1]
+for lang, subject, word in (("de", "Dein Wishfit-Code: 123456", "Gültig"), ("en", "Your Wishfit code: 123456", "Valid"), ("fr", "Dein Wishfit-Code: 123456", "Gültig")):
+    mail.send_code("a@example.com", "123456", lang)
+    m = sent[-1]
+    assert m["subject"] == subject and "123456" in m["text"] and "123456" in m["html"] and word in m["html"], lang
+    assert "<table" in m["html"] and "http://" not in m["html"].replace("http://www.w3.org/1999/xhtml", "")
+assert 'lang="en"' in sent[1]["html"] and 'lang="de"' in sent[0]["html"]
+del os.environ["RESEND_API_KEY"]
+print("mail    ok: de/en subject, text and HTML, fallback de")
+
 # --- accounts: code sign-in, sessions, sync, delete ---------------------------
 import db
 import secrets as _secrets

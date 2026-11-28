@@ -1,6 +1,6 @@
 ## 1. Mail
-- [ ] 1.1 HTML-Mail im Gift-Tag-Stil, de/en, Text-Teil, Vorschau als Screenshot
-- [ ] 1.2 selfcheck: Sprache und HTML-Teil
+- [x] 1.1 HTML-Mail im Gift-Tag-Stil, de/en, Text-Teil, Vorschau als Screenshot
+- [x] 1.2 selfcheck: Sprache und HTML-Teil
 
 ## 2. App
 - [ ] 2.1 Push-Registrierung nur bei neuem Token oder neuer Session
