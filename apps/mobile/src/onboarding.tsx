@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Account } from './account';
@@ -15,6 +15,8 @@ type Step = 'language' | 'intro' | 'signin' | 'push';
 // see openspec/changes/onboarding-language-push (design.md 2) and openspec/changes/signin-required (design.md 2)
 export function Onboarding({ lang, account, onLanguage, onSignedIn, onDone }: { lang: Lang; account: Account; onLanguage: (lang: Lang) => void; onSignedIn: () => void; onDone: () => void }) {
   const insets = useSafeAreaInsets();
+  // on a wide (desktop) window the steps sit in the middle, on a phone at the thumb
+  const wide = useWindowDimensions().width >= 700;
   const steps: Step[] = ['language', 'intro', ...(account.session ? [] : ['signin' as const]), ...(Platform.OS === 'web' ? [] : ['push' as const])];
   const [step, setStep] = useState<Step>('language');
   const next = () => {
@@ -37,7 +39,7 @@ export function Onboarding({ lang, account, onLanguage, onSignedIn, onDone }: { 
       />
     );
   return (
-    <View style={{ flex: 1, paddingHorizontal: 16, paddingBottom: insets.bottom + 24, justifyContent: 'flex-end', gap: 24 }}>
+    <View style={{ flex: 1, paddingHorizontal: 16, paddingBottom: insets.bottom + 24, justifyContent: wide ? 'center' : 'flex-end', gap: 24 }}>
       {step === 'language' ? (
         <View style={{ gap: 16 }}>
           <Say>{t('obLanguage')}</Say>

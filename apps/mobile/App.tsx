@@ -41,12 +41,24 @@ export default function App() {
   const admin = Platform.OS === 'web' && !impersonation && /^\/admin(\/|$)/.test(window.location.pathname);
   return (
     <SafeAreaProvider>
-      {admin ? <AdminConsole /> : <Root />}
+      {admin ? (
+        <AdminConsole />
+      ) : Platform.OS === 'web' ? (
+        // on a desktop browser the app keeps phone width, centred; the admin console uses the full width
+        <View style={{ flex: 1, backgroundColor: C.paper }}>
+          <View style={{ flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center', overflow: 'hidden' }}>
+            <Root />
+          </View>
+        </View>
+      ) : (
+        <Root />
+      )}
     </SafeAreaProvider>
   );
 }
 
-const WIDTH = Dimensions.get('window').width;
+// the slide distance is the app's width: the window on a phone, the centred 480 pt column on a desktop browser
+const WIDTH = Platform.OS === 'web' ? Math.min(Dimensions.get('window').width, 480) : Dimensions.get('window').width;
 
 // How a screen enters and leaves: slide = iOS push (the screen below drifts back 30 % and darkens),
 // zoom = grows out of the top-right "+" button, fade = reduced motion

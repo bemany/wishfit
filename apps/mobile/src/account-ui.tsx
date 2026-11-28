@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiError } from './api';
@@ -14,6 +14,8 @@ const field = [s.input, { flex: 0 }] as const;
 // 6-digit code. See openspec/changes/signin-required (design.md 1)
 export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account: Account; onBack?: () => void; onDone?: () => void; lang?: Lang; onLanguage?: (lang: Lang) => void }) {
   const insets = useSafeAreaInsets();
+  // on a wide (desktop) window the form sits centred in a narrow column instead of at the bottom edge
+  const wide = useWindowDimensions().width >= 700;
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -56,7 +58,7 @@ export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account:
       {(onBack || (lang && onLanguage)) && (
         <Header onBack={onBack} left={<View style={{ width: 44 }} />} right={lang && onLanguage ? <LanguageFlags value={lang} onChange={onLanguage} /> : undefined} />
       )}
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 16, paddingTop: 12, paddingBottom: insets.bottom + 24, gap: 16 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: wide ? 'center' : 'flex-end', paddingHorizontal: 16, paddingTop: 12, paddingBottom: insets.bottom + 24, gap: 16, width: '100%', maxWidth: 440, alignSelf: 'center' }}>
         <Tag color={C.lemon} style={{ gap: 14, paddingBottom: 24 }}>
           <View style={s.row}>
             <Mono>{t('account')}</Mono>
