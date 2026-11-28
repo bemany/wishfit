@@ -3,7 +3,7 @@ import { Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiError } from './api';
-import { explain, type Account } from './account';
+import { AccountError, explain, type Account } from './account';
 import { t } from './i18n';
 import { C } from './theme';
 import { Body, Btn, Header, Mono, Name, Pill, Tag, s } from './ui';
@@ -130,6 +130,25 @@ export function AccountPanel({ account }: { account: Account }) {
     }
   };
 
+  // the last changes could not be saved: signing out anyway loses them, so it asks first
+  const signOut = () =>
+    run(async () => {
+      try {
+        await account.signOut();
+      } catch (e) {
+        if (!(e instanceof AccountError)) throw e;
+        const text = t('signOutLoses');
+        if (Platform.OS === 'web') {
+          if (window.confirm(text)) await account.signOut(true);
+          return;
+        }
+        Alert.alert(t('signOutAsk'), text, [
+          { text: t('cancel'), style: 'cancel' },
+          { text: t('signOut'), style: 'destructive', onPress: () => run(() => account.signOut(true), t('cantSignOut')) },
+        ]);
+      }
+    }, t('cantSignOut'));
+
   const askDelete = () => {
     const del = () => run(account.deleteAccount, t('cantDelete'));
     const text = t('deleteText');
@@ -151,7 +170,7 @@ export function AccountPanel({ account }: { account: Account }) {
       <Mono mute>{account.syncError ?? (account.syncing ? t('syncing') : t('synced'))}</Mono>
       {account.notStored && <Mono mute>{t('notStored')}</Mono>}
       {note && <Mono style={{ color: C.tomato }}>{note}</Mono>}
-      <Btn label={t('signOut')} secondary disabled={busy} onPress={() => run(account.signOut, t('cantSignOut'))} />
+      <Btn label={t('signOut')} secondary disabled={busy} onPress={signOut} />
       <Btn label={t('deleteAccount')} secondary disabled={busy} onPress={askDelete} />
     </View>
   );

@@ -426,7 +426,7 @@ function Root() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
+    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: insets.top + 8 }}>
       <StatusBar style="dark" />
       {!signedIn && view.name === 'profile' && !askSignIn ? (
         // a shared tag without an account: the preview, before or after the onboarding

@@ -105,7 +105,10 @@ export type Account = {
   devCode: string | null;
   requestCode: (email: string) => Promise<void>;
   verify: (email: string, code: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  // force: signs out although the last changes did not reach the account (offline, too large); they are lost
+  signOut: (force?: boolean) => Promise<void>;
+  // while signing out the app takes no input, so no change slips in after the last sync
+  signingOut: boolean;
   deleteAccount: () => Promise<void>;
   // tells the account the app language, for push texts; does nothing when signed out
   saveLanguage: (lang: Lang) => void;
@@ -142,6 +145,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
   const [syncError, setSyncError] = useState<string | null>(null);
   const [devCode, setDevCode] = useState<string | null>(null);
   const [notStored, setNotStored] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [tombs, setTombsState] = useState<Tomb[]>(loadTombs);
 
   const tombsRef = useRef(tombs);
@@ -348,19 +352,26 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
   const saveLanguage = (lang: Lang) => {
     if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
-  const signOut = async () => {
-    // the last changes go to the account first; without them signing out would lose them
-    if (sent.current !== keyOf(current())) await sync(!ready.current);
-    if (getSession() && sent.current !== keyOf(current())) throw new AccountError(t('unsynced'));
-    const device_token = await pushTokenForSignOut();
+  const signOut = async (force = false) => {
+    setSigningOut(true);
     try {
-      await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
-    } catch (e) {
-      // only a gone session counts as signed out; anything else keeps it so the user can try again
-      if (!(e instanceof ApiError && e.status === 401)) throw e;
+      // the push token may take a few seconds; the last sync comes after it, right before the logout
+      const device_token = await pushTokenForSignOut();
+      // the last changes go to the account first; without them signing out would lose them
+      if (sent.current !== keyOf(current())) await sync(!ready.current);
+      if (!force && getSession() && sent.current !== keyOf(current())) throw new AccountError(t('unsynced'));
+      try {
+        await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
+      } catch (e) {
+        // only a gone session counts as signed out; anything else keeps it so the user can try again.
+        // Forced, the device signs out anyway; the token then simply expires on the server
+        if (!force && !(e instanceof ApiError && e.status === 401)) throw e;
+      }
+      forgetPushToken();
+      drop(true);
+    } finally {
+      setSigningOut(false);
     }
-    forgetPushToken();
-    drop(true);
   };
   const deleteAccount = async () => {
     await pushTokenForSignOut();
@@ -372,5 +383,5 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
 
   const settled = () => queue.current.then(() => {}, () => {});
 
-  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage, settled };
+  return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, signingOut, deleteAccount, removePerson, saveLanguage, settled };
 }
