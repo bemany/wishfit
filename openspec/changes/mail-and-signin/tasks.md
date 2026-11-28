@@ -1,0 +1,12 @@
+## 1. Mail
+- [ ] 1.1 HTML-Mail im Gift-Tag-Stil, de/en, Text-Teil, Vorschau als Screenshot
+- [ ] 1.2 selfcheck: Sprache und HTML-Teil
+
+## 2. App
+- [ ] 2.1 Push-Registrierung nur bei neuem Token oder neuer Session
+- [ ] 2.2 Netzfehler bei verify: Meldung und „Neuen Code senden"
+- [ ] 2.3 Platzhalter ohne gequetschte Wortabstände (Ursache finden)
+
+## 3. Prüfung
+- [ ] 3.1 Backend deployt, eine echte Mail an Esref (esref@bemany.de) auf Deutsch
+- [ ] 3.2 Simulator: Anmelden, Vorder/Hintergrund-Wechsel ohne neue Registrierung, Platzhalter
