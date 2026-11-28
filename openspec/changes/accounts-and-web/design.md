@@ -3,7 +3,7 @@
 - Backend: FastAPI in `services/agent`, auf Vercel als Python-Funktion. Speicher heute nur `storage.py` (Tabelle `results`, `create table if not exists` bei jedem Kaltstart, psycopg 3, eine Verbindung pro Aufruf). Beim Test am 27.11. gab es vereinzelt 500 bei parallelen Kaltstarts.
 - Test-Backend `wishfit-agent-test` (Vercel-Team fahrer-app) mit LiteLLM (`chatgpt/gpt-6-luna`), idealo-MCP und Neon `wishfit-db` (`DATABASE_URL` gepoolt, `DATABASE_URL_UNPOOLED`). Deploy von Hand per `npx vercel deploy --prod` aus einer Kopie von `services/agent`, keine Git-Anbindung.
 - App: Expo 58, RN 0.88, ein Bildschirm-System in `src/screens.tsx`, Daten in `src/api.ts` (Personen in `people.json`, Profil in `me.json` über `expo-file-system`). Web-Export (`expo export -p web`) läuft mit `react-dom`, `react-native-web`, `@expo/metro-runtime`; `expo-file-system` fehlt im Web.
-- Mail: Resend mit Domain bemany.tech ist eingerichtet (Ordo). Ein Sending-Key für Wishfit fehlt noch.
+- Mail: Resend mit eigene Absender-Domain ist eingerichtet. Ein Sending-Key für Wishfit fehlt noch.
 
 ## Goals / Non-Goals
 
