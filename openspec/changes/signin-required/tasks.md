@@ -8,3 +8,5 @@
 
 ## 2. Prüfung
 - [ ] 2.1 Simulator und Web: Erststart bis Startseite, Abmelden, Freundes-Link ohne Konto
+  - [x] Web (Playwright, 390x844, Testbackend): Sprache → Einstieg → Anmeldung, ohne Session keine Startseite, Profil-Vorschau und „Add as friend“ → Anmeldung, Session → Startseite, 401 → Anmeldung, Kontosprache aus GET /me übernommen
+  - [ ] Simulator (iOS) und echte Anmeldung per Mail-Code
