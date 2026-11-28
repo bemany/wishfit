@@ -149,9 +149,9 @@ export function InstallSheet({ open, onClose }: { open: boolean; onClose: () => 
             ))}
           </View>
         ) : (
-          <Body>{mode === 'none' ? t('installInstalled') : mode === 'ios-old' ? t('installOpenSafari') : t('installOther')}</Body>
+          <Body>{mode === 'none' ? t('installInstalled') : mode === 'ios-old' ? t('installOpenSafari') : mode === 'android-inapp' ? t('installOpenChrome') : t('installOther')}</Body>
         )}
-        {mode !== 'none' && mode !== 'prompt' && mode !== 'other' && mode !== 'ios-old' && <Btn label={t('installGotIt')} onPress={close} />}
+        {mode !== 'none' && mode !== 'prompt' && mode !== 'other' && mode !== 'ios-old' && mode !== 'android-inapp' && <Btn label={t('installGotIt')} onPress={close} />}
         {mode !== 'none' && <Btn label={t('installLater')} secondary onPress={later} />}
       </View>
     </View>
@@ -163,7 +163,7 @@ export function InstallSheet({ open, onClose }: { open: boolean; onClose: () => 
 export function InstallBanner({ open, onClose, onOpenSheet }: { open: boolean; onClose: () => void; onOpenSheet: () => void }): ReactNode {
   const insets = useSafeAreaInsets();
   const mode = useInstallMode();
-  if (!open || mode === 'none' || mode === 'other' || mode === 'ios-old') return null;
+  if (!open || mode === 'none' || mode === 'other' || mode === 'ios-old' || mode === 'android-inapp') return null;
   const go = () => {
     if (mode !== 'prompt') return onOpenSheet();
     promptInstall().then((ok) => ok && onClose());
