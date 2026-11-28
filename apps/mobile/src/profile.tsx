@@ -7,7 +7,7 @@ import { ApiError, call, sameWish, toWishes, type Me, type Person, type Price, t
 import { getLanguage, locale, t, wishCount } from './i18n';
 import { isWeb, openLink, shareText } from './platform';
 import { C, F, TAG_COLORS, eur } from './theme';
-import { Body, Btn, Mono, Name, Pill, Tag, TopBar, s } from './ui';
+import { Body, Btn, Mono, Name, Header, Pill, Tag, s } from './ui';
 
 // Wishlist import, price tracker, profile link and friends; see openspec/changes/profile-link-friends and docs/api.md
 
@@ -326,9 +326,7 @@ export function ProfileView({ slug, people, mine, onBack, onAdd, onOpen }: { slu
   const color = profile?.color && TAG_COLORS.includes(profile.color) ? profile.color : TAG_COLORS[2];
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: 16 }}>
-        <TopBar onBack={onBack} title={t('theirTag')} />
-      </View>
+      <Header onBack={onBack} title={t('theirTag')} />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, gap: 16, paddingTop: 12, paddingBottom: insets.bottom + 24 }}>
         {!state ? (
           <Mono mute>{t('loading')}</Mono>

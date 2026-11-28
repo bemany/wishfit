@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 import { t, type Lang } from './i18n';
 import { C, F } from './theme';
@@ -12,6 +12,7 @@ const ICONS = {
   close: 'M6 6l12 12M18 6L6 18',
   camera: 'M4 8h3l2-3h6l2 3h3v11H4zM12 16.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z',
   mic: 'M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3',
+  flip: 'M4 12a8 8 0 0113.5-5.8L20 8M20 4v4h-4M20 12a8 8 0 01-13.5 5.8L4 16M4 20v-4h4',
   me: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 20c0-3.3 3.6-6 8-6s8 2.7 8 6',
 } as const;
 
@@ -103,6 +104,25 @@ export const TopBar = ({ onBack, title, left, right }: { onBack?: () => void; ti
       </Mono>
     )}
     {right ?? <View style={{ width: 44 }} />}
+  </View>
+);
+
+// The fixed header of a screen: the bar stays put, 10 pt of air below it, and the scrolling content fades out
+// in a short gradient under it instead of being cut off hard at the back button
+export const Header = (p: { onBack?: () => void; title?: string; left?: ReactNode; right?: ReactNode }) => (
+  <View style={{ zIndex: 2, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: C.paper }}>
+    <TopBar {...p} />
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: '100%', height: 16 }}>
+      <Svg width="100%" height="16">
+        <Defs>
+          <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={C.paper} stopOpacity={1} />
+            <Stop offset="1" stopColor={C.paper} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="16" fill="url(#fade)" />
+      </Svg>
+    </View>
   </View>
 );
 
