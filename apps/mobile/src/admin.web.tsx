@@ -33,7 +33,7 @@ type Audit = { at: string; admin_email: string; action: string; target_user_id?:
 type Acquisition = { by_source: { source: string; medium?: string | null; campaign?: string | null; users: number }[]; top_referrers: { user_id: string; email: string; referrals: number }[] };
 type Sim = { token: string; user: { id: string; email: string; language?: string | null }; expires_at: string };
 
-type Tab = 'users' | 'results' | 'acquisition' | 'tools' | 'audit';
+type Tab = 'users' | 'results' | 'acquisition' | 'costs' | 'tools' | 'audit';
 type Page = { tab: Tab; userId?: string; resultId?: string };
 
 const RED = '#d92d20';
@@ -376,6 +376,85 @@ function AcquisitionView({ open }: { open: (p: Page) => void }) {
   );
 }
 
+type Costs = {
+  daily: { day: string; source: string; usd: number; units: number }[];
+  by_user: { user_id: string; email: string | null; usd: number }[];
+  apify_accounts: { account: string; remaining_usd: number | null; used_usd: number | null; limit_usd: number | null; error?: string }[];
+  totals: Record<'today' | '7d' | '30d', { usd: number; by_source: Record<string, number> }>;
+};
+const SOURCE_COLOR: Record<string, string> = { model: C.lemon, apify: '#b9e3ff', resend: '#ffc9d9', apns: '#d4f5c4' };
+const usd = (n: number) => `${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 4 : 2 })} $`;
+const LOW_APIFY_USD = 1;
+
+function CostsView({ open }: { open: (p: Page) => void }) {
+  const { data, error } = useGet<Costs>('/admin/costs?days=30');
+  if (error) return <Err text={error} />;
+  if (!data) return <Loading />;
+  const days = Array.from(new Set(data.daily.map((d) => d.day))).slice(-30);
+  const sources = Array.from(new Set(data.daily.map((d) => d.source)));
+  const perDay = days.map((day) => ({ day, rows: data.daily.filter((d) => d.day === day) }));
+  const max = Math.max(0.0001, ...perDay.map((p) => p.rows.reduce((a, r) => a + r.usd, 0)));
+  return (
+    <div data-testid="costs">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {([['today', 'Today'], ['7d', '7 days'], ['30d', '30 days']] as const).map(([k, label]) => (
+          <div key={k} style={{ border: `1.5px solid ${C.ink}`, borderRadius: 12, padding: 12 }}>
+            <div style={s.mute}>{label}</div>
+            <div style={{ fontFamily: F.display, fontSize: 24 }}>{usd(data.totals[k].usd)}</div>
+            <div style={{ ...s.mute, fontSize: 12 }}>{Object.entries(data.totals[k].by_source).map(([src, v]) => `${src} ${usd(v)}`).join(' · ') || '–'}</div>
+          </div>
+        ))}
+      </div>
+      <h2 style={s.h2}>Per day (UTC)</h2>
+      {perDay.length === 0 ? <p style={s.mute}>No costs recorded yet.</p> : (
+        <div data-testid="costs-bars" style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 140, border: `1.5px solid ${C.ink}`, borderRadius: 12, padding: '8px 8px 0' }}>
+          {perDay.map(({ day, rows }) => (
+            <div key={day} title={`${day}: ${usd(rows.reduce((a, r) => a + r.usd, 0))}`} style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', height: '100%', justifyContent: 'flex-start' }}>
+              {rows.map((r) => (
+                <div key={r.source} style={{ height: `${(r.usd / max) * 100}%`, minHeight: r.usd > 0 ? 2 : 0, background: SOURCE_COLOR[r.source] ?? SOFT }} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+        {sources.map((src) => (
+          <span key={src} style={{ fontSize: 12 }}><span style={{ display: 'inline-block', width: 10, height: 10, background: SOURCE_COLOR[src] ?? SOFT, border: `1px solid ${C.ink}`, marginRight: 4 }} />{src}</span>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16 }}>
+        <div>
+          <h2 style={s.h2}>Per user (30 days)</h2>
+          <Table testId="costs-users" head={['User', 'Cost']}>
+            {data.by_user.map((u) => (
+              <tr key={u.user_id} onClick={() => open({ tab: 'users', userId: u.user_id })} style={{ cursor: 'pointer' }}>
+                <td style={s.td}>{u.email ?? u.user_id}</td>
+                <td style={s.num}>{usd(u.usd)}</td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+        <div>
+          <h2 style={s.h2}>Apify accounts</h2>
+          <Table testId="costs-apify" head={['Account', 'Used', 'Remaining', '']}>
+            {data.apify_accounts.map((a) => {
+              const low = a.remaining_usd != null && a.remaining_usd < LOW_APIFY_USD;
+              return (
+                <tr key={a.account}>
+                  <td style={s.td}>{a.account}</td>
+                  <td style={s.num}>{a.used_usd == null ? '–' : usd(a.used_usd)}</td>
+                  <td style={s.num}>{a.remaining_usd == null ? '–' : usd(a.remaining_usd)}</td>
+                  <td style={s.td}>{a.error ? <Pill>{a.error}</Pill> : low ? <Pill>under 1 $, top up</Pill> : null}</td>
+                </tr>
+              );
+            })}
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Tools() {
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<unknown>(undefined);
@@ -521,6 +600,7 @@ const TABS: [Tab, string][] = [
   ['users', 'Users'],
   ['results', 'Results'],
   ['acquisition', 'Acquisition'],
+  ['costs', 'Costs'],
   ['tools', 'Tools'],
   ['audit', 'Audit'],
 ];
@@ -608,6 +688,8 @@ export function AdminConsole() {
           <Results open={setPage} />
         ) : page.tab === 'acquisition' ? (
           <AcquisitionView open={setPage} />
+        ) : page.tab === 'costs' ? (
+          <CostsView open={setPage} />
         ) : page.tab === 'tools' ? (
           <Tools />
         ) : (

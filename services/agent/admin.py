@@ -3,12 +3,13 @@
 import os
 import secrets
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+import apify
 import auth
 import db
 import push
@@ -143,3 +144,18 @@ def audit(limit: int = 100, admin: dict = Depends(current_admin)) -> dict:
 @router.get("/acquisition")
 def acquisition(admin: dict = Depends(current_admin)) -> dict:
     return db.acquisition()
+
+
+@router.get("/costs")
+def costs_overview(days: int = 30, admin: dict = Depends(current_admin)) -> dict:
+    days = max(1, min(days, 365))
+    report = db.costs_report(days)
+    today = datetime.now(timezone.utc).date()
+    totals = {}
+    for label, n in (("today", 1), ("7d", 7), ("30d", 30)):
+        first = (today - timedelta(days=n - 1)).isoformat()
+        rows = [d for d in report["daily"] if d["day"] >= first]
+        totals[label] = {"usd": round(sum(d["usd"] for d in rows), 4),
+                         "by_source": {s: round(sum(d["usd"] for d in rows if d["source"] == s), 4)
+                                       for s in sorted({d["source"] for d in rows})}}
+    return {**report, "apify_accounts": apify.accounts_status(), "totals": totals}

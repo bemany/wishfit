@@ -38,6 +38,10 @@ SCHEMA = [
     " alert_key text not null, sent_on date not null, primary key (user_id, alert_key))",
     "create table if not exists admin_audit (id bigserial primary key, at timestamptz not null default now(),"
     " admin_id uuid, action text not null, target_user_id uuid, detail jsonb)",
+    "create table if not exists cost_events (id bigserial primary key, at timestamptz not null default now(),"
+    " source text not null, kind text not null, usd numeric(12,6) not null default 0, units int not null default 1,"
+    " user_id uuid, result_id text, detail jsonb)",
+    "create index if not exists cost_events_at_idx on cost_events (at)",
 ]
 # (table, column, alter): each runs only when the column is missing (see RESULTS_USER_ID_CHECK)
 LATE_COLUMNS = [
@@ -86,6 +90,7 @@ _alerts: dict[tuple[str, str], str] = {}  # (user id, alert key) -> sent_on
 _signup: dict[str, dict] = {}  # user id -> {"source": dict, "referred_by": user id | None}
 _result_at: dict[str, datetime] = {}  # result id -> created_at
 _audit: list[dict] = []
+_costs: list[dict] = []
 
 
 def use_postgres() -> bool:
@@ -806,3 +811,64 @@ def acquisition() -> dict:
         ).fetchall()
         return {"by_source": [{"source": r[0], "medium": r[1], "campaign": r[2], "users": r[3]} for r in by],
                 "top_referrers": [{"user_id": str(r[0]), "email": r[1], "referrals": r[2]} for r in top]}
+
+
+def add_cost(source: str, kind: str, usd: float, units: int = 1, user_id: str | None = None,
+             result_id: str | None = None, detail: dict | None = None) -> None:
+    if not use_postgres():
+        with _mem_lock:
+            _costs.append({"at": now(), "source": source, "kind": kind, "usd": float(usd), "units": units,
+                           "user_id": user_id, "result_id": result_id, "detail": detail or {}})
+        return
+    from psycopg.types.json import Jsonb
+
+    with connect() as conn:
+        conn.execute(
+            "insert into cost_events (source, kind, usd, units, user_id, result_id, detail) values (%s, %s, %s, %s, %s, %s, %s)",
+            (source, kind, usd, units, user_id, result_id, Jsonb(detail or {})),
+        )
+
+
+def costs_report(days: int) -> dict:
+    """Daily sums per source (UTC days) for the last max(days, 30) days, cost per user for the last `days` days."""
+    span = max(days, 30)
+    since = now() - timedelta(days=span)
+    user_since = now() - timedelta(days=days)
+    if not use_postgres():
+        with _mem_lock:
+            rows = [c for c in _costs if c["at"] >= since]
+            daily_map: dict[tuple, list] = {}
+            per_user: dict[str, float] = {}
+            for c in rows:
+                agg = daily_map.setdefault((c["at"].date().isoformat(), c["source"]), [0.0, 0])
+                agg[0] += c["usd"]
+                agg[1] += c["units"]
+                if c["user_id"] and c["at"] >= user_since:
+                    per_user[c["user_id"]] = per_user.get(c["user_id"], 0.0) + c["usd"]
+            daily = [{"day": k[0], "source": k[1], "usd": v[0], "units": v[1]} for k, v in sorted(daily_map.items())]
+            by_user = [{"user_id": u, "email": (_users.get(u) or {}).get("email"), "usd": usd}
+                       for u, usd in sorted(per_user.items(), key=lambda kv: -kv[1])[:50]]
+            return {"daily": daily, "by_user": by_user}
+    with connect() as conn:
+        d = conn.execute(
+            "select (at at time zone 'UTC')::date, source, sum(usd), sum(units) from cost_events where at >= %s"
+            " group by 1, 2 order by 1, 2", (since,)).fetchall()
+        u = conn.execute(
+            "select c.user_id, u.email, sum(c.usd) from cost_events c left join users u on u.id = c.user_id"
+            " where c.at >= %s and c.user_id is not null group by 1, 2 order by 3 desc limit 50", (user_since,)).fetchall()
+    return {"daily": [{"day": r[0].isoformat(), "source": r[1], "usd": float(r[2]), "units": int(r[3])} for r in d],
+            "by_user": [{"user_id": str(r[0]), "email": r[1], "usd": float(r[2])} for r in u]}
+
+
+def apify_spend_today() -> float:
+    """Apify cost booked since 00:00 UTC; a failing read counts as 0 (the account limit still protects)."""
+    start = now().replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        if not use_postgres():
+            with _mem_lock:
+                return sum(c["usd"] for c in _costs if c["source"] == "apify" and c["at"] >= start)
+        with connect() as conn:
+            row = conn.execute("select coalesce(sum(usd), 0) from cost_events where source = 'apify' and at >= %s", (start,)).fetchone()
+        return float(row[0])
+    except Exception:
+        return 0.0

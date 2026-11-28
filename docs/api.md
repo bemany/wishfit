@@ -157,6 +157,7 @@ Admin = signed-in user whose e-mail is in `ADMIN_EMAILS` (comma-separated, case-
 | DELETE | `/admin/impersonate` | – | Bearer = impersonation token → 204, session deleted; 400 for any other session |
 | GET | `/admin/audit?limit=100` | – | 200 `{entries: [{at, admin_email, action, target_user_id, detail}]}`, newest first |
 | GET | `/admin/acquisition` | – | 200 `{by_source: [{source, medium, campaign, users}], top_referrers: [{user_id, email, referrals}]}` |
+| GET | `/admin/costs?days=30` | – | 200 `{daily: [{day, source, usd, units}], by_user: [{user_id, email, usd}], apify_accounts: [{account: "Konto 1", remaining_usd, used_usd, limit_usd}], totals: {today, 7d, 30d: {usd, by_source}}}`; `source` = model, apify, resend, apns (APNs 0 $, nur Menge); model costs estimated from characters when the endpoint returns no usage |
 
 - Impersonation session: its own token (hash only in the database), exactly 30 minutes, never extended. `GET /me` adds `impersonated_by_email`.
   With it these answer 403: all `/admin/*` except `DELETE /admin/impersonate`, `DELETE /me`, `POST /me/devices`.
@@ -164,3 +165,8 @@ Admin = signed-in user whose e-mail is in `ADMIN_EMAILS` (comma-separated, case-
 - `source` = `utm_source`, else `referral` (has an inviter), else `direct`.
 - `POST /auth/verify` takes an optional `attribution` object. Only for a new account (`created: true`); known keys `utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer, landing, platform` (strings, max 200 characters each, rest ignored) go to `signup_source`; `ref` = a profile slug, resolved to the inviter (an unknown or ended slug gives no inviter; one cannot invite oneself).
 - Env: `ADMIN_EMAILS`.
+
+
+## Price source
+`PRICE_SOURCE=idealo` (default, idealo MCP) or `apify` (test backend: actors `memo23/idealo-scraper` for search + shop offers, `ahmed_jasarevic/idealo-scraper` for price history, only with `APIFY_HISTORY=1`). Tokens in `APIFY_TOKENS` (comma separated, round-robin, next account on 402/403/429). Trace entries of `/recommend` carry `source: "apify"`. The response format does not change.
+Daily budget: `APIFY_DAILY_USD` (default 0.50, UTC day, summed from `cost_events`). Once reached, no actor runs start: `/wishes/price` returns null prices, `/recommend` answers without live data, and the daily cron leaves all snapshots untouched. Failed, timed-out or aborted runs are booked with their usage. Known limits: the offer cache is per instance, and cost events of the daily check are not tied to a user.

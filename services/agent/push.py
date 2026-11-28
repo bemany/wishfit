@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 import auth
+import costs
 import db
 import profiles
 
@@ -153,6 +154,7 @@ def notify(user_id: str, title: str, body: str, extra: dict) -> int:
     delivered = 0
     for token in db.devices_of(user_id):
         ok, reason = apns_send(token, payload)
+        costs.record("apns", "push", 0, 1, {"delivered": ok}, user_id=user_id)  # APNs itself is free; counted for volume
         if ok:
             delivered += 1
             db.mark_device_ok(token)
