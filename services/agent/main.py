@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+import admin
 import amazon
 import auth
 import idealo
@@ -35,6 +36,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(auth.router)
 app.include_router(profiles.router)
 app.include_router(push.router)
+app.include_router(admin.router)
 
 
 @app.middleware("http")
@@ -418,6 +420,9 @@ def cron_daily(request: Request) -> dict:
     if not push.apns_configured():
         raise HTTPException(503, "apns not configured")
     return push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), idealo.open_session)
+
+
+admin.RUN_CRON = lambda: push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), idealo.open_session)
 
 
 @app.post("/wishes/price")

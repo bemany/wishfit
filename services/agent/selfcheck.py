@@ -592,7 +592,7 @@ print("price   ok: /wishes/price order, trend, single offer, limits, cache, thro
 
 # --- push: devices, cron auth, thresholds, dedupe, occasions, cleanup (APNs stubbed) ---
 import push
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 TOK = "a" * 64
 push_user, push_h = sign_in(f"push-{tag}@example.com")
@@ -738,5 +738,159 @@ api.delete("/me", headers=friend_h)
 assert db.devices_of(uid) == []
 os.environ.pop("CRON_SECRET")
 print("push    ok: devices, cron auth, thresholds, dedupe, occasions, 410 cleanup, jwt")
+
+# --- admin console ------------------------------------------------------------
+import admin
+import auth
+
+NIL = "00000000-0000-4000-8000-000000000000"
+adm_mail = f"boss-{tag}@example.com"
+os.environ["ADMIN_EMAILS"] = f" X@y.de , {adm_mail.upper()} "
+adm, adm_h = sign_in(adm_mail)
+usr, usr_h = sign_in(f"plain-{tag}@example.com")
+usr_id = usr["user"]["id"]
+ADM_PATHS = ["/admin/me", "/admin/users", f"/admin/users/{usr_id}", "/admin/results", "/admin/audit", "/admin/acquisition"]
+# no session -> 401; signed-in non-admin -> 403 everywhere (reads and writes)
+for p in ADM_PATHS:
+    assert api.get(p).status_code == 401, p
+    assert api.get(p, headers=usr_h).status_code == 403, p
+assert api.post("/admin/impersonate", json={"user_id": adm["user"]["id"]}, headers=usr_h).status_code == 403
+assert api.post("/admin/push-test", json={"user_id": usr_id}, headers=usr_h).status_code == 403
+assert api.post("/admin/cron", headers=usr_h).status_code == 403
+assert api.get("/admin/results/whatever", headers=usr_h).status_code == 403
+# an empty ADMIN_EMAILS admits nobody; the list is case-insensitive and trimmed
+os.environ["ADMIN_EMAILS"] = ""
+assert api.get("/admin/me", headers=adm_h).status_code == 403
+os.environ["ADMIN_EMAILS"] = f" X@y.de , {adm_mail.upper()} "
+assert api.get("/admin/me", headers=adm_h).json() == {"email": adm_mail}
+
+# user list: search, counters, no secrets
+TOK_A = "c" * 64
+api.post("/me/devices", json={"token": TOK_A, "platform": "ios"}, headers=usr_h)
+api.put("/me/data", json={"people": [{"id": "p1", "name": "Mo"}], "profile": {"name": "U", "wishes": [{"title": "Mug"}, {"title": "Pen"}]}}, headers=usr_h)
+r = api.get("/admin/users", params={"query": f"PLAIN-{tag}"}, headers=adm_h).json()
+assert r["total"] == 1 and r["users"][0]["id"] == usr_id, r
+u0 = r["users"][0]
+assert (u0["people"], u0["wishes"], u0["devices"], u0["results"]) == (1, 2, 1, 0) and u0["last_seen_at"] and u0["source"] == "direct"
+assert api.get("/admin/users", params={"query": "zzz-no-such"}, headers=adm_h).json() == {"users": [], "total": 0}
+assert len(api.get("/admin/users", params={"limit": 1}, headers=adm_h).json()["users"]) == 1
+det = api.get(f"/admin/users/{usr_id}", headers=adm_h).json()
+assert det["devices"][0]["token_tail"] == "c" * 6 and TOK_A not in json.dumps(det) and "code_hash" not in json.dumps(det)
+assert det["data"]["people"][0]["name"] == "Mo" and det["user"]["email"] == f"plain-{tag}@example.com"
+assert api.get("/admin/users/not-a-uuid", headers=adm_h).status_code == 404
+assert api.get(f"/admin/users/{NIL}", headers=adm_h).status_code == 404
+# results list and trace
+db.save_result(f"adm-{tag}", {"status": "ok", "model": "m1"}, {"model_calls": [{"duration_ms": 120}, {"duration_ms": 30}]}, usr_id)
+rl = api.get("/admin/results", params={"user_id": usr_id}, headers=adm_h).json()["results"]
+assert rl[0]["id"] == f"adm-{tag}" and rl[0]["duration_ms"] == 150 and rl[0]["email"] == f"plain-{tag}@example.com", rl
+assert api.get(f"/admin/results/adm-{tag}", headers=adm_h).json()["trace"]["model_calls"][0]["duration_ms"] == 120
+assert api.get("/admin/results/nope-nope", headers=adm_h).status_code == 404
+# push test and cron through the admin (APNs stubbed)
+_send, _cron = push.apns_send, admin.RUN_CRON
+push.apns_send = lambda t, p: (True, None)
+admin.RUN_CRON = lambda: {"skipped": True}
+assert api.post("/admin/push-test", json={"user_id": usr_id, "title": "T"}, headers=adm_h).json() == {"sent": 1, "devices": 1}
+assert api.post("/admin/push-test", json={"user_id": NIL}, headers=adm_h).status_code == 404
+assert api.post("/admin/cron", headers=adm_h).json() == {"skipped": True}
+push.apns_send, admin.RUN_CRON = _send, _cron
+
+# impersonation: start (404 unknown), own token, only its hash is stored
+assert api.post("/admin/impersonate", json={"user_id": NIL}, headers=adm_h).status_code == 404
+imp = api.post("/admin/impersonate", json={"user_id": usr_id}, headers=adm_h).json()
+imp_h = {"Authorization": f"Bearer {imp['token']}"}
+assert imp["token"] != adm["token"] and imp["user"]["id"] == usr_id and imp["user"]["email"] == f"plain-{tag}@example.com"
+exp = datetime.fromisoformat(imp["expires_at"])
+assert timedelta(minutes=29) < exp - db.now() <= timedelta(minutes=30), imp["expires_at"]
+if not db.use_postgres():
+    assert imp["token"] not in db._sessions and auth._token_hash(imp["token"]) in db._sessions
+me = api.get("/me", headers=imp_h).json()
+assert me["id"] == usr_id and me["impersonated_by_email"] == adm_mail and "_imp" not in me
+assert "impersonated_by_email" not in api.get("/me", headers=usr_h).json() and "_imp" not in api.get("/me", headers=adm_h).json()
+assert api.get("/me/data", headers=imp_h).json()["people"][0]["name"] == "Mo"
+# forbidden while impersonating: the admin API (reads and writes), account deletion, device registration
+for p in ADM_PATHS:
+    assert api.get(p, headers=imp_h).status_code == 403, p
+assert api.post("/admin/impersonate", json={"user_id": usr_id}, headers=imp_h).status_code == 403
+assert api.post("/admin/push-test", json={"user_id": usr_id}, headers=imp_h).status_code == 403
+assert api.post("/admin/cron", headers=imp_h).status_code == 403
+assert api.delete("/me", headers=imp_h).status_code == 403
+assert api.post("/me/devices", json={"token": "d" * 64, "platform": "ios"}, headers=imp_h).status_code == 403
+assert db.devices_of(usr_id) == [TOK_A] and db.get_user(usr_id)
+# other writes go through and are audited with method and path only
+assert api.put("/me/settings", json={"language": "en"}, headers=imp_h).status_code == 200
+assert api.put("/me/data", json={"people": [], "profile": None}, headers=imp_h).status_code in (200, 409)
+# the admin's own session keeps working; an admin session cannot "end" an impersonation
+assert api.get("/admin/me", headers=adm_h).status_code == 200
+assert api.delete("/admin/impersonate", headers=adm_h).status_code == 400
+assert api.get("/admin/me", headers=adm_h).status_code == 200
+# fixed 30 minutes: using the session does not extend it; afterwards it is a plain 401
+real_now = db.now
+db.now = lambda: real_now() + timedelta(minutes=29)
+assert api.get("/me", headers=imp_h).status_code == 200
+db.now = lambda: real_now() + timedelta(minutes=31)
+assert api.get("/me", headers=imp_h).status_code == 401
+assert api.get("/me", headers=usr_h).status_code == 200 and api.get("/admin/me", headers=adm_h).status_code == 200
+db.now = real_now
+# explicit end: 204, token dead, audited
+imp2 = api.post("/admin/impersonate", json={"user_id": usr_id}, headers=adm_h).json()
+imp2_h = {"Authorization": f"Bearer {imp2['token']}"}
+assert api.delete("/admin/impersonate", headers=imp2_h).status_code == 204
+assert api.get("/me", headers=imp2_h).status_code == 401
+assert api.get("/admin/me", headers=adm_h).status_code == 200
+# audit: start/end/writes/push/cron, no tokens or bodies anywhere
+ent = api.get("/admin/audit", headers=adm_h).json()["entries"]
+acts = [e["action"] for e in ent]
+assert acts.count("impersonate_start") == 2 and acts.count("impersonate_end") == 1 and "push_test" in acts and "cron_run" in acts, acts
+writes = [e for e in ent if e["action"] == "write"]
+assert {(w["detail"]["method"], w["detail"]["path"]) for w in writes} >= {("PUT", "/me/settings"), ("PUT", "/me/data")}, writes
+assert all(e["admin_email"] == adm_mail for e in ent) and all(w["target_user_id"] == usr_id for w in writes)
+blob = json.dumps(ent)
+assert all(t not in blob for t in (imp["token"], imp2["token"], adm["token"], '"Mo"', '"en"')), blob
+assert len(api.get("/admin/audit", params={"limit": 1}, headers=adm_h).json()["entries"]) == 1
+
+# attribution: only for new accounts, known keys only, 200 chars max, ref = profile slug
+slug = api.post("/me/share", headers=usr_h).json()["slug"]
+
+
+def verify_with(email: str, attribution: dict) -> dict:
+    unthrottle(email)
+    c = api.post("/auth/request-code", json={"email": email}).json()["dev_code"]
+    r = api.post("/auth/verify", json={"email": email, "code": c, "attribution": attribution})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+att_mail = f"att-{tag}@example.com"
+a1 = verify_with(att_mail, {"utm_source": "instagram", "utm_campaign": "x" * 500, "evil": "1", "platform": "web", "landing": 5, "ref": slug})
+assert a1["created"] is True
+row = api.get("/admin/users", params={"query": att_mail}, headers=adm_h).json()["users"][0]
+assert row["signup_source"] == {"utm_source": "instagram", "utm_campaign": "x" * 200, "platform": "web"}, row["signup_source"]
+assert row["source"] == "instagram" and row["referred_by_email"] == f"plain-{tag}@example.com"
+assert api.get("/admin/users", params={"query": f"plain-{tag}"}, headers=adm_h).json()["users"][0]["referrals"] == 1
+# signing in again (created false) overwrites nothing
+assert verify_with(att_mail, {"utm_source": "other", "ref": "nope"})["created"] is False
+assert api.get("/admin/users", params={"query": att_mail}, headers=adm_h).json()["users"][0]["signup_source"]["utm_source"] == "instagram"
+# unknown slug and garbage attribution: no inviter, sign-in still works
+b1 = verify_with(f"att2-{tag}@example.com", {"ref": "does-not-exist"})
+assert api.get("/admin/users", params={"query": f"att2-{tag}"}, headers=adm_h).json()["users"][0]["referred_by_email"] is None
+c1 = verify_with(f"att3-{tag}@example.com", {"ref": ["x"], "utm_source": {"a": 1}})
+assert api.get("/admin/users", params={"query": f"att3-{tag}"}, headers=adm_h).json()["users"][0]["signup_source"] is None
+# a slug that was ended brings no inviter
+api.delete("/me/share", headers=usr_h)
+d1 = verify_with(f"att4-{tag}@example.com", {"ref": slug})
+assert api.get("/admin/users", params={"query": f"att4-{tag}"}, headers=adm_h).json()["users"][0]["referred_by_email"] is None
+acq = api.get("/admin/acquisition", headers=adm_h).json()
+assert any(s["source"] == "instagram" and s["campaign"] == "x" * 200 and s["users"] >= 1 for s in acq["by_source"]), acq
+assert any(t["email"] == f"plain-{tag}@example.com" and t["referrals"] == 1 for t in acq["top_referrers"]), acq
+assert any(s["source"] == "direct" for s in acq["by_source"])
+# deleting the inviter keeps the invitee, now without an inviter
+api.delete("/me", headers=usr_h)
+assert api.get("/admin/users", params={"query": f"plain-{tag}"}, headers=adm_h).json()["total"] == 0
+assert api.get("/admin/users", params={"query": att_mail}, headers=adm_h).json()["users"][0]["referred_by_email"] is None
+for x in (a1, b1, c1, d1):
+    api.delete("/me", headers={"Authorization": f"Bearer {x['token']}"})
+api.delete("/me", headers=adm_h)
+os.environ.pop("ADMIN_EMAILS")
+print("admin   ok: 403 for non-admin, users/results/audit, impersonation limits + expiry, audit, attribution")
 
 print("ALL CHECKS PASSED")
