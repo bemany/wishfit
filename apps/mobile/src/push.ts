@@ -23,13 +23,21 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// iOS may never answer the token request (no APNs connection, simulator); nothing may wait on it forever
+const TOKEN_TIMEOUT_MS = 10_000;
+const SIGN_OUT_WAIT_MS = 5_000;
+function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+}
+
 // Registers this phone with the account when notifications are allowed; does nothing when signed out
 export function registerPush(): Promise<void> {
   return serial(async () => {
     const session = getSession();
     if (!session) return;
     if (!(await Notifications.getPermissionsAsync()).granted) return;
-    const { data: token } = await Notifications.getDevicePushTokenAsync();
+    const device = await within(Notifications.getDevicePushTokenAsync(), TOKEN_TIMEOUT_MS, null);
+    const token = device?.data;
     if (typeof token !== 'string' || !token) return;
     // signed out or switched accounts while asking iOS for the token
     if (getSession()?.token !== session.token) return;
@@ -48,7 +56,9 @@ export async function askPush(): Promise<boolean> {
 // Sign-out: waits for a running registration, then gives the token to POST /auth/logout, which removes the
 // device in the same call as the session. The local token is only forgotten once that call went through.
 export function pushTokenForSignOut(): Promise<string | null> {
-  return serial(async () => readSettings().pushToken ?? null);
+  const stored = () => readSettings().pushToken ?? null;
+  // a registration still on its way gets a few seconds; after that the stored token is used as it is
+  return within(serial(async () => stored()), SIGN_OUT_WAIT_MS, null).then((t) => t ?? stored());
 }
 export function forgetPushToken(): void {
   writeSettings({ pushToken: null });
