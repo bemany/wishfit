@@ -8,3 +8,4 @@
 - [x] 2.3 Admin-Seite „Kosten“
 ## 3. Prüfung
 - [x] 3.1 selfcheck, Live-Läufe Apify, Kosten in /admin/costs (Live-Empfehlung erst nach Umstellen von PRICE_SOURCE)
+- [x] 3.2 Fix: Angebotslinks mit Preis auf zwei Nachkommastellen bzw. dem leadoutUrl des Actors; Zeitlimits im Apify-Pfad (Deadline 80 s, 3 Wünsche parallel, ein Retry statt leerer Antwort)

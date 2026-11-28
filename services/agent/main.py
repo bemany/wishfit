@@ -283,15 +283,26 @@ def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
         session = price_source.open_session()
     except Exception as exc:
         raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
-    wishes = req.wishes[:5]
+    apify_run = price_source.name() == "apify"
+    wishes = req.wishes[:3 if apify_run else 5]  # an actor run takes 15-45 s: three in parallel are one wave inside the deadline
+    deadline = time.monotonic() + _request_deadline_s()
+
+    def search(w: str):
+        args = {"query": w, "filters": {"maxPrice": req.budget_eur, "availableOnly": True}}
+        found: dict | list | None = {"error": "no time left"}
+        for attempt in range(2 if apify_run else 1):  # a slow actor run gets one more try while time is left
+            left = deadline - time.monotonic()
+            if left < (20 if attempt else 3):
+                break
+            found = _idealo_call(session, "search_products", args, trace, _search_summary,
+                                 timeout=min(_call_timeout_s(), left) if apify_run else None)
+            if isinstance(found, list):
+                return found
+        return found
+
     # ponytail: 3 workers = the trial tier's 3 req/s; raise with a partner-tier key
     with ThreadPoolExecutor(max_workers=3) as pool:
-        searches = list(pool.map(
-            costs.bound(lambda w: _idealo_call(session, "search_products",
-                                   {"query": w, "filters": {"maxPrice": req.budget_eur, "availableOnly": True}},
-                                   trace, _search_summary)),
-            wishes,
-        ))
+        searches = list(pool.map(costs.bound(search), wishes))
         data = []
         jobs = []
         for wish, found in zip(wishes, searches):
@@ -365,7 +376,7 @@ MAX_PRICE_WISHES = 20
 TREND_THRESHOLD = 3.0  # percent over 30 days
 PRICE_DEADLINE_S = 25  # whole request; wishes not done by then come back as null
 PRICE_CALL_TIMEOUT_S = 8  # per idealo call
-APIFY_DEADLINE_S, APIFY_CALL_TIMEOUT_S = 55, 45  # an actor run takes 15-20 s, an MCP call a second
+APIFY_DEADLINE_S, APIFY_CALL_TIMEOUT_S = 80, 50  # an actor run takes 15-45 s, an MCP call a second
 
 
 def _request_deadline_s() -> float:

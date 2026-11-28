@@ -943,6 +943,12 @@ assert _runs[0][0] == "tokA" and _runs[1][0] == "tokB"  # 402 on the first accou
 _offers = apify.get_product_offers({"productRef": "111"}, 5)
 assert _offers[0]["merchant"] == "A" and _offers[0]["shipping_eur"] == 4.0 and "offerKey=k1" in _offers[0]["offer_url"]
 assert apify.search_products({"query": "m", "filters": {"maxPrice": 10}}, 30) == []  # over budget is dropped
+# offer links: price with two decimals; the actor's own leadoutUrl wins for the offer it belongs to
+_o = apify._offers_from({"leadoutUrl": "https://www.idealo.de/relocator/relocate?offerKey=k9&price=122.30&sid=3&type=offer&pos=1",
+                         "offers": [{"shopName": "A", "price": 122.3, "offerKey": "k9", "shopId": "3"},
+                                    {"shopName": "B", "price": 133.1, "offerKey": "k8", "shopId": "4"}, {"shopName": "C", "price": 5}]})
+assert _o[0]["offer_url"].startswith("https://www.idealo.de/relocator/relocate?offerKey=k9&price=122.30&sid=3")
+assert "price=133.10&sid=4" in _o[1]["offer_url"] and _o[2]["offer_url"] is None
 _ev = _db._costs[_n0]
 assert _ev["source"] == "apify" and _ev["usd"] == 0.0123 and _ev["detail"]["account"] == "Konto 2" and "tokB" not in str(_ev)
 _h = apify._history_from({"priceHistory": {"data": [{"x": "2026-10-01", "y": 100}, {"x": "2026-11-01", "y": 90}]}})
