@@ -531,7 +531,8 @@ export const deviceLanguage = (): Lang => {
 export const isLang = (v: unknown): v is Lang => v === 'de' || v === 'en';
 
 // Local settings of this device; `onboarded` is not synced, so a new phone shows the onboarding again
-type Settings = { language?: Lang; onboarded?: boolean; pushToken?: string | null; pushDone?: string | null };
+// owner: the e-mail of the account the people and profile on this device belong to
+type Settings = { language?: Lang; onboarded?: boolean; pushToken?: string | null; pushDone?: string | null; owner?: string | null };
 export const readSettings = (): Settings => {
   const raw = readJson('settings') as Settings | null;
   return raw && typeof raw === 'object' ? raw : {};

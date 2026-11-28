@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { ApiError, call, clearSession, dateField, getSession, saveMe, savePeople, setSession, setSessionLostHandler, friendFields, newerPrices, toShare, toWishes, type Me, type Person, type Session } from './api';
-import { getLanguage, isLang, t, type Lang } from './i18n';
+import { getLanguage, isLang, readSettings, t, writeSettings, type Lang } from './i18n';
 import { forgetPushToken, pushTokenForSignOut, registerPush, watchPush } from './push';
 import { readJson, writeJson } from './storage';
 import { TAG_COLORS } from './theme';
@@ -124,6 +124,8 @@ export function explain(e: unknown, fallback: string): string {
   if (e.status === 429) return t('tooManyTries');
   return e.message;
 }
+
+const EMPTY = (): Local => ({ people: [], me: { name: '', color: TAG_COLORS[1], wishes: [] }, tombs: [] });
 
 const loadTombs = (): Tomb[] => {
   const raw = readJson('tombstones');
@@ -247,7 +249,12 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
   // sign-in must not merge it into another account. A lost session (401) keeps it for the same account
   const drop = useCallback((clear = false) => {
     clearSession();
-    if (clear) applyLocal({ people: [], me: { name: '', color: TAG_COLORS[1], wishes: [] }, tombs: [] });
+    // the next sign-in registers the device again, whichever account it is
+    writeSettings({ pushDone: null });
+    if (clear) {
+      applyLocal(EMPTY());
+      writeSettings({ owner: null });
+    }
     // the profile link belongs to the account
     else if (meRef.current.share) {
       const next = { ...meRef.current, share: null };
@@ -270,7 +277,10 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
   // app start: pull the account once and refresh the push token, which can change. The account language
   // may have been changed on another device
   useEffect(() => {
-    if (!getSession()) return;
+    const start = getSession();
+    if (!start) return;
+    // signed in by an older version, which did not note the owner yet
+    if (!readSettings().owner) writeSettings({ owner: start.email });
     call<{ language?: string | null }>('GET', '/me')
       .then((r) => {
         if (getSession() && isLang(r?.language) && r.language !== getLanguage()) adopt.current(r.language);
@@ -319,6 +329,11 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     const r = await call<{ token: string; user: { email: string; language?: string | null }; created?: boolean }>('POST', '/auth/verify', { email: email.trim().toLowerCase(), code: code.trim() }, false);
     const next: Session = { token: r.token, email: r.user.email };
     reset();
+    // after a lost session (401) the device still holds the last account's data: a different account starts
+    // empty instead of merging it. Data from before accounts (no owner) goes into the first account
+    const owner = readSettings().owner;
+    if (owner && owner !== next.email) applyLocal(EMPTY());
+    writeSettings({ owner: next.email });
     setNotStored(!setSession(next));
     setSessionState(next);
     setDevCode(null);
