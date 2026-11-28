@@ -437,7 +437,7 @@ function Root() {
   };
 
   return (
-    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: installBanner && !installOpen ? 0 : insets.top + 8 }}>
+    <View pointerEvents={account.signingOut ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: C.paper, paddingTop: (installBanner && !installOpen) || (impersonation && signedIn) ? 0 : insets.top + 8 }}>
       <StatusBar style="dark" />
       {impersonation && signedIn && <ImpersonationStrip email={account.session?.email ?? ''} />}
       <InstallBanner open={installBanner && !installOpen} onClose={() => setInstallBanner(false)} onOpenSheet={() => setInstallOpen(true)} />

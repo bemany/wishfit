@@ -123,8 +123,8 @@ function Table({ head, children, testId }: { head: string[]; children: ReactNode
   );
 }
 
-// A trace or any JSON, readable as a tree: objects and arrays fold open, the first two levels are open
-function JsonTree({ value, name, depth = 0 }: { value: unknown; name?: string; depth?: number }) {
+// A trace or any JSON, readable as a tree: objects and arrays fold open, the first `open` levels are open
+function JsonTree({ value, name, depth = 0, open = 2 }: { value: unknown; name?: string; depth?: number; open?: number }) {
   const label = name !== undefined ? <span style={{ fontFamily: F.semi }}>{name}: </span> : null;
   if (value === null || typeof value !== 'object') {
     const color = typeof value === 'string' ? '#1a7f37' : typeof value === 'number' ? '#0b5cad' : C.mute;
@@ -137,12 +137,12 @@ function JsonTree({ value, name, depth = 0 }: { value: unknown; name?: string; d
   }
   const entries = Array.isArray(value) ? value.map((v, i) => [String(i), v] as const) : Object.entries(value as Record<string, unknown>);
   return (
-    <details open={depth < 2} style={{ ...s.mono, paddingLeft: depth ? 14 : 0 }}>
+    <details open={depth < open} style={{ ...s.mono, paddingLeft: depth ? 14 : 0 }}>
       <summary style={{ cursor: 'pointer' }}>
         {label}
         <span style={s.mute}>{Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`}</span>
       </summary>
-      {entries.map(([k, v]) => <JsonTree key={k} name={k} value={v} depth={depth + 1} />)}
+      {entries.map(([k, v]) => <JsonTree key={k} name={k} value={v} depth={depth + 1} open={open} />)}
     </details>
   );
 }
@@ -330,11 +330,11 @@ function ResultView({ id, back }: { id: string; back: () => void }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 12 }}>
           <div style={{ ...s.card, overflowX: 'auto' }} data-testid="trace">
             <div style={{ fontFamily: F.semi, marginBottom: 6 }}>Trace</div>
-            <JsonTree value={data.trace} />
+            <JsonTree value={data.trace} open={4} />
           </div>
           <div style={{ ...s.card, overflowX: 'auto' }}>
             <div style={{ fontFamily: F.semi, marginBottom: 6 }}>Response</div>
-            <JsonTree value={data.response} />
+            <JsonTree value={data.response} open={3} />
           </div>
         </div>
       )}

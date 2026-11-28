@@ -24,10 +24,11 @@ export const endImpersonation = async () => {
   notifyEnded();
 };
 
+// red from the very top like the iOS call bar; the console's phone frame puts its notch over the first 50 px
 export function ImpersonationStrip({ email }: { email: string }) {
   const [ending, setEnding] = useState(false);
   return (
-    <View testID="imp-strip" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: RED, paddingVertical: 8, paddingHorizontal: 12 }}>
+    <View testID="imp-strip" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: RED, paddingTop: 50, paddingBottom: 8, paddingHorizontal: 12 }}>
       <Text numberOfLines={1} style={{ flexShrink: 1, color: C.paper, fontFamily: F.semi, fontSize: 13 }}>
         {t('impViewing', { email })}
       </Text>
