@@ -12,10 +12,13 @@ export const SIM_MAX = 720;
 export const SIM_DEFAULT = 460;
 const WIDTH_KEY = 'wishfit-admin:simwidth';
 
+// never wider than leaves room for the side navigation (200) and 320 px of content
+export const clampSimWidth = (n: number) => Math.min(n, Math.max(320, window.innerWidth - 200 - 320));
+
 export const loadSimWidth = () => {
   try {
     const n = Number(localStorage.getItem(WIDTH_KEY));
-    return n >= SIM_MIN && n <= SIM_MAX ? n : SIM_DEFAULT;
+    return clampSimWidth(n >= SIM_MIN && n <= SIM_MAX ? n : SIM_DEFAULT);
   } catch {
     return SIM_DEFAULT;
   }
@@ -33,6 +36,8 @@ export const saveSimWidth = (n: number) => {
 // inside keeps its data in sessionStorage under wishfit:imp:<userId>:
 export function Simulator({ sim, close, docked, width, onWidth }: { sim: Sim; close: () => void; docked: boolean; width: number; onWidth: (n: number) => void }) {
   const [box, setBox] = useState({ w: width, h: window.innerHeight });
+  const [, tick] = useState(0);
+  const frameRef = useRef<HTMLIFrameElement>(null);
   const [expired, setExpired] = useState(false);
   const released = useRef(false);
   const column = useRef<HTMLDivElement>(null);
@@ -51,7 +56,7 @@ export function Simulator({ sim, close, docked, width, onWidth }: { sim: Sim; cl
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const data = e.data as { type?: string; reason?: string } | null;
-      if (e.origin !== window.location.origin || data?.type !== 'wishfit-imp-end' || released.current) return;
+      if (e.origin !== window.location.origin || e.source !== frameRef.current?.contentWindow || data?.type !== 'wishfit-imp-end' || released.current) return;
       if (data.reason === 'expired') {
         // the server no longer takes the session: say so instead of closing without a word
         release();
@@ -60,7 +65,10 @@ export function Simulator({ sim, close, docked, width, onWidth }: { sim: Sim; cl
     };
     window.addEventListener('message', onMessage);
     window.addEventListener('pagehide', release);
+    const onResize = () => tick((x) => x + 1);
+    window.addEventListener('resize', onResize);
     return () => {
+      window.removeEventListener('resize', onResize);
       window.removeEventListener('message', onMessage);
       window.removeEventListener('pagehide', release);
     };
@@ -80,7 +88,7 @@ export function Simulator({ sim, close, docked, width, onWidth }: { sim: Sim; cl
 
   const drag = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const move = (m: PointerEvent) => onWidth(Math.max(SIM_MIN, Math.min(SIM_MAX, window.innerWidth - m.clientX, window.innerWidth - 420)));
+    const move = (m: PointerEvent) => onWidth(clampSimWidth(Math.max(SIM_MIN, Math.min(SIM_MAX, window.innerWidth - m.clientX))));
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
@@ -102,7 +110,7 @@ export function Simulator({ sim, close, docked, width, onWidth }: { sim: Sim; cl
       data-testid="simulator"
       data-docked={docked ? '1' : '0'}
       style={{
-        ...(docked ? { position: 'relative', width, flexShrink: 0, height: '100vh', borderLeft: `1.5px solid ${C.ink}` } : { position: 'fixed', inset: 0, zIndex: 10 }),
+        ...(docked ? { position: 'relative', width: clampSimWidth(width), flexShrink: 0, height: '100vh', borderLeft: `1.5px solid ${C.ink}` } : { position: 'fixed', inset: 0, zIndex: 10 }),
         background: '#26262a',
         display: 'flex',
         flexDirection: 'column',
@@ -127,6 +135,7 @@ export function Simulator({ sim, close, docked, width, onWidth }: { sim: Sim; cl
         <div style={{ width: 414 * fit, height: 868 * fit, flexShrink: 0 }}>
           <div style={{ width: 414, height: 868, transform: `scale(${fit})`, transformOrigin: 'top left', borderRadius: 64, background: C.ink, padding: 12, boxSizing: 'border-box', position: 'relative', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
             <iframe
+              ref={frameRef}
               data-testid="sim-frame"
               title={`Wishfit as ${sim.user.email}`}
               src={`/?imp=1#${hash.toString()}`}

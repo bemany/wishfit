@@ -44,18 +44,35 @@ export function load(path: string, force = false): Promise<void> {
   return p;
 }
 
-// Warms a path (on hover, at start); a path loaded a moment ago is left alone
+// Warms a path on hover: only the row the pointer rests on for 150 ms, and at most 3 such loads at a time
+const HOVER_MS = 150;
+const HOVER_MAX = 3;
+let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+let hoverActive = 0;
 export const prefetch = (path: string) => {
-  void load(path);
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => {
+    if (hoverActive >= HOVER_MAX || inflight.has(path)) return;
+    hoverActive++;
+    void load(path).finally(() => hoverActive--);
+  }, HOVER_MS);
 };
 
 export const preloadOverviews = () => {
-  for (const p of [usersPath('', 0), RESULTS_PATH, ACQUISITION_PATH, COSTS_PATH, AUDIT_PATH]) prefetch(p);
+  for (const p of [usersPath('', 0), RESULTS_PATH, ACQUISITION_PATH, COSTS_PATH, AUDIT_PATH]) void load(p);
+};
+
+// After something changed on the server (End view, test push, daily check): reload what is cached under these
+// path prefixes; pages keep showing the old copy until the new one is there
+export const refreshCached = (prefixes: string[]) => {
+  for (const key of Array.from(cache.keys())) if (prefixes.some((p) => key.startsWith(p))) void load(key, true);
 };
 
 export const clearCache = () => {
   cache.clear();
   errors.clear();
+  inflight.clear();
+  clearTimeout(hoverTimer);
 };
 
 export function useGet<T>(path: string | null) {

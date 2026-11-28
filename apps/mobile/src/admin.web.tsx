@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAccount } from './account';
 import { SignIn } from './account-ui';
 import { ApiError, call, getSession, loadMe, loadPeople, saveMe, savePeople, type Me, type Person } from './api';
-import { ACQUISITION_PATH, AUDIT_PATH, COSTS_PATH, RESULTS_PATH, USERS_LIMIT, clearCache, prefetch, preloadOverviews, useGet, usersPath } from './admin-data.web';
+import { ACQUISITION_PATH, AUDIT_PATH, COSTS_PATH, RESULTS_PATH, USERS_LIMIT, clearCache, prefetch, preloadOverviews, refreshCached, useGet, usersPath } from './admin-data.web';
 import { Simulator, loadSimWidth, saveSimWidth, type Sim } from './admin-sim.web';
 import { DataTable, type Col } from './admin-table.web';
 import { Btn, Err, Loading, Pill, RED, SOFT, errText, s, statusColor, useNarrow, when } from './admin-ui.web';
@@ -154,7 +154,10 @@ function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) =>
     setBusy('push');
     setNote(null);
     call<{ sent: number; devices: number }>('POST', '/admin/push-test', { user_id: u.id })
-      .then((r) => setNote(`Test push sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.`))
+      .then((r) => {
+        setNote(`Test push sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? '' : 's'}.`);
+        refreshCached(['/admin/audit', `/admin/users/${encodeURIComponent(u.id)}`]);
+      })
       .catch((e) => setNote(errText(e)))
       .finally(() => setBusy(null));
   };
@@ -162,7 +165,10 @@ function UserDetailView({ id, open, simulate }: { id: string; open: (p: Page) =>
     setBusy('imp');
     setNote(null);
     call<Sim>('POST', '/admin/impersonate', { user_id: u.id })
-      .then(simulate)
+      .then((r) => {
+        simulate(r);
+        refreshCached(['/admin/audit']);
+      })
       .catch((e) => setNote(errText(e)))
       .finally(() => setBusy(null));
   };
@@ -373,7 +379,10 @@ function Tools() {
     setBusy(true);
     setError(null);
     call('POST', '/admin/cron')
-      .then(setOut)
+      .then((r) => {
+        setOut(r);
+        refreshCached(['/admin/audit', '/admin/users', '/admin/results', '/admin/costs']);
+      })
       .catch((e) => setError(errText(e)))
       .finally(() => setBusy(false));
   };
@@ -519,6 +528,11 @@ export function AdminConsole() {
     setPage({ tab });
     setMenu(false);
   };
+  // the end of a view is written to the audit log by the server a moment after the call
+  const closeSim = () => {
+    setSim(null);
+    setTimeout(() => refreshCached(['/admin/audit', '/admin/users']), 500);
+  };
   const changeWidth = (n: number) => {
     setSimWidth(n);
     saveSimWidth(n);
@@ -560,7 +574,7 @@ export function AdminConsole() {
           )}
         </div>
       </div>
-      {sim && <Simulator sim={sim} close={() => setSim(null)} docked={!narrow} width={simWidth} onWidth={changeWidth} />}
+      {sim && <Simulator sim={sim} close={closeSim} docked={!narrow} width={simWidth} onWidth={changeWidth} />}
     </div>
   );
 }
