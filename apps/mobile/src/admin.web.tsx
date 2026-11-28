@@ -164,7 +164,7 @@ function Users({ open }: { open: (p: Page) => void }) {
   return (
     <>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', margin: '4px 0 12px' }}>
-        <input data-testid="user-search" placeholder="Search e-mail or slug" value={query} onChange={(e) => setQuery(e.target.value)} style={s.input} />
+        <input data-testid="user-search" placeholder="Search e-mail" value={query} onChange={(e) => setQuery(e.target.value)} style={s.input} />
         {data && <span style={s.mute}>{data.total} users</span>}
       </div>
       <Err text={error} />
@@ -426,27 +426,42 @@ function AuditView() {
 // app at once); the app inside keeps its data in sessionStorage under wishfit:imp:<userId>:
 function Simulator({ sim, close }: { sim: Sim; close: () => void }) {
   const [fit, setFit] = useState(1);
-  const ended = useRef(false);
-  const end = useCallback(() => {
-    if (ended.current) return;
-    ended.current = true;
-    fetch(`${API_URL}/admin/impersonate`, { method: 'DELETE', headers: { Authorization: `Bearer ${sim.token}` } }).catch(() => {});
+  const [expired, setExpired] = useState(false);
+  const released = useRef(false);
+  // ends the session on the server and forgets the view's data; also when the simulator goes away without End
+  // (another page in the console, a closed tab), so no token outlives it in this tab
+  const release = useCallback(() => {
+    if (released.current) return;
+    released.current = true;
+    fetch(`${API_URL}/admin/impersonate`, { method: 'DELETE', headers: { Authorization: `Bearer ${sim.token}` }, keepalive: true }).catch(() => {});
     clearImpersonation(`wishfit:imp:${sim.user.id}:`);
+  }, [sim]);
+  const end = useCallback(() => {
+    release();
     close();
-  }, [sim, close]);
+  }, [release, close]);
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.origin === window.location.origin && (e.data as { type?: string } | null)?.type === 'wishfit-imp-end') end();
+      const data = e.data as { type?: string; reason?: string } | null;
+      if (e.origin !== window.location.origin || data?.type !== 'wishfit-imp-end' || released.current) return;
+      if (data.reason === 'expired') {
+        // the server no longer takes the session: say so instead of closing without a word
+        release();
+        setExpired(true);
+      } else end();
     };
     const onResize = () => setFit(Math.min(1, (window.innerHeight - 110) / 868, (window.innerWidth - 24) / 414));
     onResize();
     window.addEventListener('message', onMessage);
     window.addEventListener('resize', onResize);
+    window.addEventListener('pagehide', release);
     return () => {
       window.removeEventListener('message', onMessage);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('pagehide', release);
     };
-  }, [end]);
+  }, [end, release]);
+  useEffect(() => release, [release]);
   const hash = new URLSearchParams({ t: sim.token, u: sim.user.id, e: sim.user.email, l: sim.user.language === 'de' ? 'de' : 'en' });
   return (
     <div data-testid="simulator" style={{ position: 'fixed', inset: 0, background: 'rgba(11,11,12,0.72)', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 }}>
@@ -455,17 +470,25 @@ function Simulator({ sim, close }: { sim: Sim; close: () => void }) {
         <span style={{ ...s.mono, opacity: 0.7 }}>until {when(sim.expires_at)}</span>
         <Btn testId="sim-end" danger onClick={end}>End view</Btn>
       </div>
-      <div style={{ width: 414 * fit, height: 868 * fit }}>
-        <div style={{ width: 414, height: 868, transform: `scale(${fit})`, transformOrigin: 'top left', borderRadius: 64, background: C.ink, padding: 12, boxSizing: 'border-box', position: 'relative', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
-          <iframe
-            data-testid="sim-frame"
-            title={`Wishfit as ${sim.user.email}`}
-            src={`/?imp=1#${hash.toString()}`}
-            style={{ width: 390, height: 844, border: 0, borderRadius: 52, background: C.paper, display: 'block' }}
-          />
-          <div style={{ position: 'absolute', top: 22, left: '50%', marginLeft: -62, width: 124, height: 34, borderRadius: 20, background: C.ink, pointerEvents: 'none' }} />
+      {expired ? (
+        <div data-testid="sim-expired" style={{ ...s.card, background: C.paper, maxWidth: 360, margin: 24 }}>
+          <div style={{ fontFamily: F.display, fontSize: 20 }}>View expired</div>
+          <p style={{ ...s.mute, margin: '6px 0 12px' }}>The session for {sim.user.email} has ended (views last 30 minutes). Start it again from the user.</p>
+          <Btn primary onClick={close}>Close</Btn>
         </div>
-      </div>
+      ) : (
+        <div style={{ width: 414 * fit, height: 868 * fit }}>
+          <div style={{ width: 414, height: 868, transform: `scale(${fit})`, transformOrigin: 'top left', borderRadius: 64, background: C.ink, padding: 12, boxSizing: 'border-box', position: 'relative', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+            <iframe
+              data-testid="sim-frame"
+              title={`Wishfit as ${sim.user.email}`}
+              src={`/?imp=1#${hash.toString()}`}
+              style={{ width: 390, height: 844, border: 0, borderRadius: 52, background: C.paper, display: 'block' }}
+            />
+            <div style={{ position: 'absolute', top: 22, left: '50%', marginLeft: -62, width: 124, height: 34, borderRadius: 20, background: C.ink, pointerEvents: 'none' }} />
+        </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -511,6 +534,12 @@ export function AdminConsole() {
 
   useEffect(() => {
     document.title = 'Wishfit Admin';
+    // a view left over from before a reload in this tab: its data goes, the session expires on the server
+    try {
+      for (const key of Object.keys(sessionStorage)) if (key.startsWith('wishfit:imp:')) sessionStorage.removeItem(key);
+    } catch {
+      // no sessionStorage
+    }
   }, []);
   useEffect(() => {
     if (state !== 'check') return;
