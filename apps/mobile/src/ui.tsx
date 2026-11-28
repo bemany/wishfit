@@ -76,13 +76,35 @@ export const Btn = ({ label, onPress, secondary, disabled }: { label: string; on
   </Pressable>
 );
 
+const FLAG: Record<Lang, string> = { de: '🇩🇪', en: '🇬🇧' };
+
 // Deutsch / English, the chosen one filled
 export const LanguagePicker = ({ value, onChange }: { value: Lang; onChange: (lang: Lang) => void }) => (
   <View style={{ flexDirection: 'row', gap: 8 }}>
     {(['de', 'en'] as const).map((l) => (
       <View key={l} style={{ flex: 1 }}>
-        <Btn label={l === 'de' ? 'Deutsch' : 'English'} secondary={l !== value} onPress={() => onChange(l)} />
+        <Btn label={`${FLAG[l]}  ${l === 'de' ? 'Deutsch' : 'English'}`} secondary={l !== value} onPress={() => onChange(l)} />
       </View>
+    ))}
+  </View>
+);
+
+// Small flag switch for screens before the app proper (sign-in), the chosen one filled
+export const LanguageFlags = ({ value, onChange }: { value: Lang; onChange: (lang: Lang) => void }) => (
+  <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', gap: 6 }}>
+    {(['de', 'en'] as const).map((l) => (
+      <Pressable
+        key={l}
+        accessibilityRole="radio"
+        accessibilityState={{ checked: l === value }}
+        accessibilityLabel={l === 'de' ? 'Deutsch' : 'English'}
+        hitSlop={6}
+        onPress={() => onChange(l)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 36, borderRadius: 18, borderWidth: 2, borderColor: C.ink, backgroundColor: l === value ? C.ink : C.paper }}
+      >
+        <Text style={{ fontSize: 16 }}>{FLAG[l]}</Text>
+        <Text style={[s.mono, { color: l === value ? '#fff' : C.ink }]}>{l.toUpperCase()}</Text>
+      </Pressable>
     ))}
   </View>
 );

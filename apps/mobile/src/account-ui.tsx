@@ -4,15 +4,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiError } from './api';
 import { AccountError, explain, type Account } from './account';
-import { t } from './i18n';
+import { t, type Lang } from './i18n';
 import { C } from './theme';
-import { Body, Btn, Header, Mono, Name, Pill, Tag, s } from './ui';
+import { Body, Btn, Header, LanguageFlags, Mono, Name, Pill, Tag, s } from './ui';
 
 const field = [s.input, { flex: 0 }] as const;
 
 // Sign-in screen, the one way in for new and returning users: a big gift tag with the e-mail, then the
 // 6-digit code. See openspec/changes/signin-required (design.md 1)
-export function SignIn({ account, onBack, onDone }: { account: Account; onBack?: () => void; onDone?: () => void }) {
+export function SignIn({ account, onBack, onDone, lang, onLanguage }: { account: Account; onBack?: () => void; onDone?: () => void; lang?: Lang; onLanguage?: (lang: Lang) => void }) {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -53,7 +53,9 @@ export function SignIn({ account, onBack, onDone }: { account: Account; onBack?:
 
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
-      {onBack && <Header onBack={onBack} />}
+      {(onBack || (lang && onLanguage)) && (
+        <Header onBack={onBack} left={<View style={{ width: 44 }} />} right={lang && onLanguage ? <LanguageFlags value={lang} onChange={onLanguage} /> : undefined} />
+      )}
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 16, paddingTop: 12, paddingBottom: insets.bottom + 24, gap: 16 }}>
         <Tag color={C.lemon} style={{ gap: 14, paddingBottom: 24 }}>
           <View style={s.row}>

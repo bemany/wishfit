@@ -464,6 +464,8 @@ function Root() {
       ) : !signedIn ? (
         <SignIn
           account={account}
+          lang={lang}
+          onLanguage={changeLanguage}
           onBack={askSignIn && view.name === 'profile' ? () => { addAfter.current = null; setAskSignIn(false); } : undefined}
           onDone={afterSignIn}
         />
