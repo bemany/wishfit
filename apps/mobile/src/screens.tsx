@@ -247,7 +247,7 @@ export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { 
   };
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 8} style={{ flex: 1 }}>
-      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
+      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[pad, { gap: 16, paddingBottom: insets.bottom + 24 }]}>
         <TopBar onBack={onBack} title={t('me')} />
         <Tag color={me.color} style={{ gap: 8 }}>
           <View style={s.row}>
