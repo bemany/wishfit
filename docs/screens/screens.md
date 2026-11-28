@@ -60,3 +60,18 @@ All admin screens were recorded with Playwright `page.route` against mocked `/ad
 - Not captured anywhere: recommendation with prices, detail screen, alternatives (backend returned ideas only).
 
 Note: the admin screenshots (40–51) were redacted: the real admin address in the header and audit table is blanked.
+
+# Real journey (real products)
+Real account (esref@bemany.de, login code inserted into the test DB), test backend with PRICE_SOURCE=apify, 390x844 iPhone UA, DE. Files: real/web/NN-*.png. Person "Demo Lea" created (name, budget 60, occasion Geburtstag); Esref's own data (Vanessa) untouched.
+- 01 home with his tag "Vanessa" (CHRISTMAS · 100 €, "TIPP STEHT", Furla Münzbörse 65,95 €); 01-with-demo after creating Lea. 02 add-person form (empty/filled). 03 empty chat "Erzähl mir von Demo Lea." with sources WhatsApp-Chat / Amazon-Wunschliste. 04 typed "Lea wandert gern und trinkt viel Tee". 05/05b loading with steps Verstehen → Suche bei idealo ("Das dauert etwa 20 Sekunden", real ~60 s).
+- 06 result: Stanley Adventure To-Go Isolierflasche 0,75 L, 33,62 € inkl. 0 € Versand ("von 60,00 € Budget"), buttons "Jetzt kaufen"/"Merken", offers count and data signals. 07 scrolled; 08 alternatives "Passt auch" (Regatta Highton V2 20L 19,54 €, Vahdam Tee-Geschenkset 39,99 €), quick replies Günstiger / Etwas anderes / Hat das schon.
+- 09–11 detail "Warum und wo kaufen" (price, offers, availability "nicht bestätigt", data from idealo · shop). 12/12b tap on offer opens the idealo relocator (popup/tab). 13 pinned ("Gemerkt").
+- 14/15 "Günstiger" → Karl-Weis-Teefilter 14,95 € (18,67 € cheaper than before). 16/16b/16c "Etwas anderes" → needs_clarification: idealo search timed out, no new product (real failure case). 18/18b/18c "Hat das schon" → Chai-Latte-Probierset (7 Sorten) 13,65 €.
+Recommendations requested so far: 4 (~4 cent).
+- 19/19b vague input "Irgendwas Schönes" → no clarifying question, a recommendation anyway (Falke TK 2 Trekking-Socken 13,22 €, via sportdeal24.de, delivery date shown; "Passt auch" Falke TK 1 15,12 €).
+- 20/20b edit person ("Mehr · Demo Lea": name, budget, occasion, date, colour, "Gemerkt" with the pinned Stanley bottle + "Entfernen", Speichern, "Anhänger löschen").
+- 21 Ich page (Esref's own: "10 Wünsche", "Dein Anhänger ist geteilt", wish list with prices and 30-day trend such as "in 30 Tagen 23 % günstiger"; viewed only, nothing changed). The full-page shot is not kept because the account e-mail is shown at the bottom.
+- 22/22-sheet/22b photo search: "Produkt fotografieren" opens a sheet "Foto für Demo Lea – Die Kamera ist für Wishfit aus … oder lad ein Foto hoch" with "Foto hochladen"; upload of a real thermos JPEG (Wikimedia Commons) → "Wie wäre das hier?" with ALTERNATIVE Contigo THERMALOCK Tumbler 14,99 €; the reply says it cannot match the bottle without brand/model.
+- 23/24 EN UI for result and detail ("Why and where to buy", "WHY THIS ONE", "FROM WHAT YOU TOLD ME", "THE DATA BEHIND IT"). Observation: the agent texts stay German because the stored messages were created in DE.
+- 25 own public profile /u/<slug> (anonymous view): "Ein geteilter Anhänger", Esref, 10 Wünsche, "Als Freund hinzufügen"/"In der App öffnen", list with prices. Friend chat: not available (Esref has no friend tags).
+Recommendations requested in total: 6 (~6 cent, budget 0,50 $).
