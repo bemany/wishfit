@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import sampleChat from '../assets/sample.chat.request.json';
 import { AccountPanel } from './account-ui';
+import { InstallRow } from './install-ui';
 import { ImportBox, SharePanel, WishList, mergeWishes } from './profile';
 import type { Account } from './account';
 import { isDate, isPinned, lastResult, sayOf, type Me, type Person, type Product, type Recommendation, type Result } from './api';
@@ -304,6 +305,7 @@ export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { 
           <Mono mute>{t('language')}</Mono>
           <LanguagePicker value={lang} onChange={onLanguage} />
         </View>
+        <InstallRow />
         <AccountPanel account={account} />
       </ScrollView>
     </KeyboardAvoidingView>

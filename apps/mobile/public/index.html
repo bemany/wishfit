@@ -9,6 +9,22 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Wishfit" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Gift ideas that fit the person, from an agent that asks first." />
+    <script>
+      // Catch the install prompt before React starts, src/install.web.ts reads it from here
+      window.__wfInstall = null;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        window.__wfInstall = e;
+        window.dispatchEvent(new Event('wf-install'));
+      });
+      window.addEventListener('appinstalled', function () {
+        window.__wfInstall = null;
+        window.dispatchEvent(new Event('wf-install'));
+      });
+    </script>
     <title>%WEB_TITLE%</title>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
@@ -16,6 +32,7 @@
       html,
       body {
         height: 100%;
+        background: #ffffff;
       }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
