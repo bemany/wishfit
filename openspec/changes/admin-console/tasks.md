@@ -11,3 +11,7 @@
 ## 3. Prüfung
 - [ ] 3.1 Live: Nicht-Admin 403, Admin-Liste, Impersonation, DELETE /me verboten, Ablauf, Audit
 - [ ] 3.2 Web-Test (Playwright): Konsole, Simulator, Admin-Speicher unverändert
+## 4. Herkunft
+- [ ] 4.1 Backend: users.signup_source/referred_by, verify.attribution, /admin/acquisition, Felder in /admin/users
+- [ ] 4.2 Web/App: first-touch Erfassung, ref aus Profillink/?ref, Mitsenden bei verify; Landing reicht UTM weiter
+- [ ] 4.3 Admin: Herkunft/Einlader je Nutzer, Übersicht Quellen und Top-Einlader

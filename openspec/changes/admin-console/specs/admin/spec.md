@@ -31,3 +31,14 @@ Die Admin-Konsole SHALL Nutzer mit Kennzahlen, Nutzer-Details, Ergebnisse mit Tr
 #### Scenario: Test-Push
 - **WHEN** der Admin bei einem Nutzer mit Gerät „Test-Push" auslöst
 - **THEN** meldet die Konsole die Zahl der erreichten Geräte
+
+### Requirement: Herkunft und Einlader
+Das Backend SHALL beim Anlegen eines Kontos die mitgeschickte Herkunft (UTM, Referrer, Einstiegsseite) und den Einlader (Profil-Slug) einmalig speichern, und die Admin-Konsole SHALL sie anzeigen.
+
+#### Scenario: Über Profillink gekommen
+- **WHEN** jemand über `/u/<slug>` von Nutzer A kommt und ein neues Konto anlegt
+- **THEN** ist A als Einlader gespeichert und A's Zahl gebrachter Nutzer steigt
+
+#### Scenario: Kampagne
+- **WHEN** jemand über `?utm_source=instagram&utm_campaign=xmas` zuerst landet und sich später registriert
+- **THEN** stehen Quelle und Kampagne am neuen Konto und in der Übersicht nach Quelle

@@ -12,3 +12,9 @@ Esref (28.11.2026) braucht eine Admin-Oberfläche, um Nutzer, Agent-Ergebnisse u
 
 ## Impact
 services/agent (auth.py, db.py, neues admin.py, selfcheck, docs/api.md), apps/mobile (Web-Teil: Route /admin, storage.web.ts-Namensraum, Impersonations-Hinweis), Vercel-Env `ADMIN_EMAILS`. Nicht im nativen iOS sichtbar.
+
+## Ergänzung: Herkunft und Einladungen (Esref, 28.11.2026)
+- Beim ersten Besuch merkt sich die Web-App (und die Landingpage reicht weiter) UTM-Parameter (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`), Referrer und Einstiegsseite (first touch).
+- Wer über einen Profillink (`/u/<slug>`, `wishloop://u/<slug>`) oder einen Einladungslink (`?ref=<slug>`) kommt, wird dem einladenden Nutzer zugeordnet.
+- Beim Anlegen eines Kontos (erstes `verify`) speichert das Backend Herkunft und Einlader einmalig am Nutzer; spätere Anmeldungen ändern nichts.
+- Die Admin-Konsole zeigt je Nutzer Herkunft und Einlader, die Zahl der von ihm gebrachten Nutzer und eine Übersicht nach Quelle/Kampagne.
