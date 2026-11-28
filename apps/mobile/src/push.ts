@@ -30,6 +30,13 @@ function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 }
 
+// short fingerprint, so the session token itself is not written a second time
+function hash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 // Registers this phone with the account when notifications are allowed; does nothing when signed out
 export function registerPush(): Promise<void> {
   return serial(async () => {
@@ -41,8 +48,11 @@ export function registerPush(): Promise<void> {
     if (typeof token !== 'string' || !token) return;
     // signed out or switched accounts while asking iOS for the token
     if (getSession()?.token !== session.token) return;
+    // token and session already registered together: nothing to send on every return to the foreground
+    const done = `${token}|${hash(session.token)}`;
+    if (readSettings().pushDone === done) return;
     await call('POST', '/me/devices', { token, platform: 'ios' });
-    writeSettings({ pushToken: token });
+    writeSettings({ pushToken: token, pushDone: done });
   });
 }
 
@@ -61,7 +71,7 @@ export function pushTokenForSignOut(): Promise<string | null> {
   return within(serial(async () => stored()), SIGN_OUT_WAIT_MS, null).then((t) => t ?? stored());
 }
 export function forgetPushToken(): void {
-  writeSettings({ pushToken: null });
+  writeSettings({ pushToken: null, pushDone: null });
 }
 
 // Permission granted later in the iOS settings, or a new token from iOS: register again

@@ -13,6 +13,8 @@ const en = {
   more: 'More',
   send: 'Send',
   tryAgain: 'That did not work. Try again.',
+  connectionLost: 'Connection lost. Get a new code.',
+  newCode: 'Send new code',
   unknownError: 'Unknown error.',
   noServer: "I can't reach the server ({url}).",
   serverError: 'The server answered with error {status}.',
@@ -272,6 +274,8 @@ const de: Record<Key, string> = {
   more: 'Mehr',
   send: 'Senden',
   tryAgain: 'Das hat nicht geklappt. Versuch es noch mal.',
+  connectionLost: 'Verbindung unterbrochen. Hol dir einen neuen Code.',
+  newCode: 'Neuen Code senden',
   unknownError: 'Unbekannter Fehler.',
   noServer: 'Ich erreiche den Server nicht ({url}).',
   serverError: 'Der Server meldet Fehler {status}.',
@@ -525,7 +529,7 @@ export const deviceLanguage = (): Lang => {
 export const isLang = (v: unknown): v is Lang => v === 'de' || v === 'en';
 
 // Local settings of this device; `onboarded` is not synced, so a new phone shows the onboarding again
-type Settings = { language?: Lang; onboarded?: boolean; pushToken?: string | null };
+type Settings = { language?: Lang; onboarded?: boolean; pushToken?: string | null; pushDone?: string | null };
 export const readSettings = (): Settings => {
   const raw = readJson('settings') as Settings | null;
   return raw && typeof raw === 'object' ? raw : {};
