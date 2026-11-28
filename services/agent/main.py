@@ -3,22 +3,28 @@
 import json
 import os
 import secrets
+import re
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import OpenAI, OpenAIError
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 import amazon
+import auth
 import idealo
+import profiles
+import push
 import storage
 
 HERE = Path(__file__).parent
@@ -26,6 +32,9 @@ load_dotenv(HERE / ".env")
 
 app = FastAPI(title="Wishloop Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth.router)
+app.include_router(profiles.router)
+app.include_router(push.router)
 
 
 @app.middleware("http")
@@ -45,6 +54,16 @@ def invalid_request(_, exc: RequestValidationError):
     return JSONResponse({"detail": detail}, status_code=422)
 
 
+def clean_text(text: str | None) -> str | None:
+    """Drop control and placeholder characters (iOS pastes U+FFFC for an attachment in the text field)."""
+    if text is None:
+        return None
+    return "".join(
+        ch for ch in text
+        if ch in "\n\t" or (unicodedata.category(ch) not in ("Cc", "Cs", "Co") and ch not in "\ufffc\ufffd\ufff9\ufffa\ufffb\u200b\ufeff")
+    )
+
+
 # --- contract models -------------------------------------------------------
 
 
@@ -60,6 +79,11 @@ class RecommendRequest(BaseModel):
     demo_case: Literal["simple", "chaotic", "chat"] | None = None
     # a photo of a product (JPEG or PNG, base64 without a data: prefix); a vision model names what it shows
     image_base64: str | None = Field(default=None, max_length=6_000_000)
+
+    @field_validator("input_text", "wishes", "preferences", "occasion", "recipient_name", mode="after")
+    @classmethod
+    def clean(cls, value):
+        return [clean_text(v) for v in value] if isinstance(value, list) else clean_text(value)
 
     @model_validator(mode="after")
     def some_input(self):
@@ -158,10 +182,11 @@ def _eur(text: str | None) -> float | None:
         return None
 
 
-def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, summarize) -> dict | list | None:
+def _idealo_call(session: str | None, tool: str, arguments: dict, trace: dict, summarize, timeout: float | None = None) -> dict | list | None:
     started = time.perf_counter()
     try:
-        result = summarize(idealo.call_tool(tool, arguments, session))
+        extra = {} if timeout is None else {"timeout": timeout}
+        result = summarize(idealo.call_tool(tool, arguments, session, **extra))
     except Exception as exc:  # one failed lookup must not sink the whole request; the model sees the gap
         result = {"error": f"{type(exc).__name__}: {exc}"[:200]}
     trace["idealo_calls"].append({
@@ -222,6 +247,30 @@ def _history_summary(raw: dict) -> dict | None:
     }
 
 
+def is_single_offer(match: dict) -> bool:
+    """idealo search also returns single merchant offers (redirect link, no catalog product):
+    they have no offer list and no price history."""
+    url = match.get("product_url") or ""
+    return "offerKey=" in url or "oc_offer" in url or "relocator/relocate" in url
+
+
+def offer_from_hit(match: dict) -> list[dict]:
+    """A hit with price and link but no merchant offers becomes one offer; unknown merchant and shipping stay null."""
+    if match.get("price_eur") is None or not match.get("product_url"):
+        return []
+    return [{
+        "merchant": None,
+        "price_eur": match["price_eur"],
+        "shipping_eur": None,
+        "delivery_estimate": None,
+        "delivery_status": None,
+        "free_return_days": None,
+        "offer_url": match["product_url"],
+        "available": True,  # the search ran with availableOnly
+        "derived_from_search_hit": True,
+    }]
+
+
 def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
     """Live idealo data over the idealo MCP: per wish a catalog search within budget, then offers
     (with shipping and delivery) and the 30-day price history for the two best matches."""
@@ -246,11 +295,18 @@ def fetch_idealo_live(req: RecommendRequest, trace: dict) -> list[dict]:
             matches = found if isinstance(found, list) else []
             data.append({"wish": wish, "matches": matches, **({"search_error": found["error"]} if isinstance(found, dict) else {})})
             for m in matches[:2]:
+                if is_single_offer(m):
+                    m["offers"], m["price_history_30d"] = offer_from_hit(m), None  # nothing to look up for these
+                    continue
                 ref = {"productRef": m["productRef"]}
                 jobs.append((m, "offers", pool.submit(_idealo_call, session, "get_product_offers", ref, trace, _offers_summary)))
                 jobs.append((m, "price_history_30d", pool.submit(_idealo_call, session, "get_product_price_history", ref, trace, _history_summary)))
         for match, key, future in jobs:
             match[key] = future.result()
+    for entry in data:
+        for m in entry["matches"][:2]:
+            if not m.get("offers") or isinstance(m["offers"], dict):  # empty or failed lookup
+                m["offers"] = offer_from_hit(m)
     return data
 
 
@@ -271,6 +327,140 @@ def fetch_idealo(req: RecommendRequest, trace: dict) -> list[dict]:
     return snapshot["wishes"]
 
 
+# --- price tracker for wishes (POST /wishes/price, no model call) -------------
+
+MAX_PRICE_WISHES = 20
+TREND_THRESHOLD = 3.0  # percent over 30 days
+PRICE_DEADLINE_S = 25  # whole request; wishes not done by then come back as null
+PRICE_CALL_TIMEOUT_S = 8  # per idealo call
+PRICE_CACHE_TTL_S = 30 * 60
+PRICE_CACHE_MAX = 500
+_price_cache: dict[str, tuple[float, dict]] = {}  # normalized title -> (monotonic time, price); per instance
+_price_cache_lock = threading.Lock()
+
+
+def _cache_get(key: str) -> dict | None:
+    with _price_cache_lock:
+        hit = _price_cache.get(key)
+        if hit and time.monotonic() - hit[0] < PRICE_CACHE_TTL_S:
+            return hit[1]
+        _price_cache.pop(key, None)
+    return None
+
+
+def _cache_put(key: str, price: dict) -> None:
+    with _price_cache_lock:
+        if len(_price_cache) >= PRICE_CACHE_MAX:
+            _price_cache.pop(min(_price_cache, key=lambda k: _price_cache[k][0]))
+        _price_cache[key] = (time.monotonic(), price)
+
+
+class PriceWish(BaseModel):
+    title: str = Field(max_length=300)
+    url: str | None = Field(default=None, max_length=2000)
+
+
+class PriceRequest(BaseModel):
+    wishes: list[PriceWish] = Field(max_length=MAX_PRICE_WISHES)
+
+
+def _trend(change_percent: float | None) -> str | None:
+    if change_percent is None:
+        return None
+    return "down" if change_percent <= -TREND_THRESHOLD else "up" if change_percent >= TREND_THRESHOLD else "stable"
+
+
+def price_for(session: str | None, title: str, deadline: float | None = None, strict: bool = False) -> dict | None:
+    """Best idealo hit for one wish: search (available only), then offers and 30-day history for a catalog hit.
+    Single-merchant hits have neither offers list nor history (as in the recommend flow)."""
+    trace = {"idealo_calls": []}  # the shared helper logs into a trace; not kept here
+
+    def call(tool: str, arguments: dict, summarize):
+        left = PRICE_CALL_TIMEOUT_S if deadline is None else min(PRICE_CALL_TIMEOUT_S, deadline - time.monotonic())
+        if left <= 0:
+            return None
+        return _idealo_call(session, tool, arguments, trace, summarize, timeout=left)
+
+    hits = call("search_products", {"query": title.strip(), "filters": {"availableOnly": True}}, _search_summary)
+    if strict and not isinstance(hits, list):  # error dict or no time left: unknown, not "no hit"
+        raise push.PriceUnavailable(title)
+    if not isinstance(hits, list) or not hits:
+        return None
+    hit = hits[0]
+    if hit.get("price_eur") is None:
+        return None
+    price, count, change = hit["price_eur"], hit.get("offer_count"), None
+    if not is_single_offer(hit) and hit.get("productRef"):
+        ref = {"productRef": hit["productRef"]}
+        offers = call("get_product_offers", ref, _offers_summary)
+        history = call("get_product_price_history", ref, _history_summary)
+        prices = [o["price_eur"] for o in offers if o.get("price_eur") is not None] if isinstance(offers, list) else []
+        if prices:
+            price = min(prices + [price])
+        if isinstance(history, dict):
+            change = history.get("change_percent")
+    return {
+        "price_eur": price,
+        "offer_count": count if isinstance(count, int) else 1,
+        "in_stock": True,  # the search ran with availableOnly
+        "trend": _trend(change),
+        "change_percent": change,
+        "url": hit.get("product_url"),
+        "image_url": hit.get("image_url"),
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
+@app.api_route("/cron/daily", methods=["GET", "POST"])  # Vercel cron calls with GET
+def cron_daily(request: Request) -> dict:
+    if not push.cron_authorized(request.headers.get("authorization")):
+        raise HTTPException(401, "unauthorized")
+    if not push.apns_configured():
+        raise HTTPException(503, "apns not configured")
+    return push.run_daily(lambda s, t, d: price_for(s, t, d, strict=True), idealo.open_session)
+
+
+@app.post("/wishes/price")
+def wishes_price(req: PriceRequest, request: Request) -> dict:
+    if len(req.wishes) > MAX_PRICE_WISHES:
+        raise HTTPException(422, f"wishes: at most {MAX_PRICE_WISHES} per request")
+    if profiles.limited(request):
+        raise HTTPException(429, "too many requests, try again in a minute")
+    if not os.environ.get("IDEALO_MCP_URL") or not os.environ.get("IDEALO_CLIENT_ID"):
+        raise HTTPException(503, "idealo MCP not configured")
+    titles = [w.title for w in req.wishes]
+    if not any(t.strip() for t in titles):
+        return {"prices": [None] * len(titles)}
+    try:
+        session = idealo.open_session()
+    except Exception as exc:
+        raise HTTPException(502, f"idealo MCP not reachable: {type(exc).__name__}") from exc
+
+    deadline = time.monotonic() + PRICE_DEADLINE_S
+
+    def one(title: str) -> dict | None:
+        key = " ".join(title.lower().split())
+        if not key:
+            return None
+        cached = _cache_get(key)
+        if cached:
+            return cached
+        try:
+            price = price_for(session, title, deadline)
+        except Exception:  # one wish failing must not sink the others
+            return None
+        if price:
+            _cache_put(key, price)
+        return price
+
+    # ponytail: 3 workers; idealo.call_tool also throttles per instance to 3 calls/s across all requests
+    pool = ThreadPoolExecutor(max_workers=3)
+    futures = [pool.submit(one, t) for t in titles]
+    done, _ = wait(futures, timeout=PRICE_DEADLINE_S)
+    pool.shutdown(wait=False, cancel_futures=True)
+    return {"prices": [f.result() if f in done else None for f in futures]}
+
+
 # --- the deciding model call (Vercel AI Gateway) ----------------------------
 
 SYSTEM_PROMPT = """You are Wishloop, a gift-buying agent. Step 2: decide. You get a gift request (wishes, total budget \
@@ -283,7 +473,10 @@ two carry "offers" (merchant, price_eur, shipping_eur, delivery_estimate, offer_
 (current, lowest, highest, average, change_percent). "understood" (may be null) is what step 1 took from the \
 giver's free-form input: prefer ideas that fit the person, not just the cheapest item. Take offer_url, \
 image_url, merchant, price and shipping from ONE concrete offer. Price history covers 30 days; say so. \
-A missing shipping_eur is null, not 0.
+A missing shipping_eur is null, not 0. A match can carry a single offer derived from the search hit \
+("derived_from_search_hit": true): price and link are real, merchant, shipping and delivery are unknown (null) \
+and there is no price history. That is a usable offer: recommend it, keep the unknowns null and name them \
+openly in reason and in a signal (for example "merchant and shipping not known, check on idealo").
 
 Return exactly one JSON object, no prose, no markdown:
 {
@@ -306,7 +499,7 @@ Recommendation = {
 }
 
 Rules:
-- "recommendation": exactly one top and 2-3 alternatives. Price plus shipping of the top must fit the budget.
+- "recommendation": exactly one top and up to 3 alternatives (fewer if the data has fewer usable matches). Price plus shipping of the top must fit the budget.
 - action "buy": good price now and available. "wait": price history says it is clearly above its usual level \
 or it is temporarily unavailable. "alternative": a different product than the one wished for.
 - signals: at least one per recommendation, the concrete idealo data points that carry the decision \
@@ -328,7 +521,17 @@ words, or what you need to know. Never empty.
 Do not return the same product again unless the giver asks for it. "Cheaper" means a total clearly below \
 previous_pick.total_eur.
 - Prefer a recommendation: if at least one match fits the budget and the person, recommend it and put remaining \
-doubts into uncertainty. Use needs_clarification only when no match is usable at all."""
+doubts into uncertainty. Use needs_clarification only when nothing fits the person at all or the budget is not \
+enough for any match. An unknown merchant or shipping cost is NOT a reason to ask.
+- Prefer matches that fit ALL named traits (for example red AND glittery). A brand or theme the giver mentions \
+(for example a motorcycle brand) is a soft wish: use it when a match fits, otherwise recommend the best match \
+for the other traits and say that the theme is missing.
+- "must_recommend" true means you already asked twice in this conversation: you MUST return status \
+"recommendation" now with the best available match (and 2-3 alternatives if there are any), however imperfect; \
+state the doubts in reason and uncertainty. Also for follow-ups like "something else": give the next best match, \
+do not ask again.
+- Alternatives are different products than top, taken from the matches; if fewer than 2 other matches exist, \
+give fewer."""
 
 
 GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
@@ -456,12 +659,14 @@ def understand(req: RecommendRequest, trace: dict, previous_pick: dict | None = 
 
 
 def decide(req: RecommendRequest, understood: Understood | None, idealo: list[dict], trace: dict,
-           previous_pick: dict | None = None, follow_up: str | None = None) -> tuple[Decision, str]:
+           previous_pick: dict | None = None, follow_up: str | None = None,
+           must_recommend: bool = False) -> tuple[Decision, str]:
     """Step 2, the deciding call: buy, wait or alternative, from the request plus the idealo data."""
     user = {
         "request": req.model_dump(exclude={"demo_case", "input_text", "previous_id", "image_base64"}),
         "previous_pick": previous_pick,
         "follow_up": follow_up,
+        "must_recommend": must_recommend,
         "understood": understood.model_dump() if understood else None,
         "idealo_data": idealo,
     }
@@ -469,7 +674,14 @@ def decide(req: RecommendRequest, understood: Understood | None, idealo: list[di
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ]
-    return call_model("decide", messages, Decision, trace)
+    decision, model = call_model("decide", messages, Decision, trace)
+    if must_recommend and decision.status != "recommendation":
+        messages = messages + [
+            {"role": "assistant", "content": decision.model_dump_json()},
+            {"role": "user", "content": 'You already asked twice. Return status "recommendation" now with the best match from the data.'},
+        ]
+        decision, model = call_model("decide", messages, Decision, trace)
+    return decision, model
 
 
 def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest:
@@ -488,6 +700,74 @@ def with_amazon_wishlist(req: RecommendRequest, trace: dict) -> RecommendRequest
         block = f"Hinweis: Die verlinkte Amazon-Wunschliste konnte nicht gelesen werden ({status})."
     text = ((req.input_text or "") + "\n\n" + block)[:20000]
     return req.model_copy(update={"input_text": text, "wishes": [w for w in req.wishes if not amazon.find_url(w)]})
+
+
+MAX_AMAZON_LINKS = 3
+AMAZON_BUDGET_S = 6.0
+
+
+def with_amazon_link(req: RecommendRequest, trace: dict) -> RecommendRequest:
+    """Amazon short links and product links in the new message: resolve the redirect (only Amazon hosts),
+    use the product slug as the wish. Without a slug the link is dropped (never handed to the model); the trace
+    keeps only resolved/rejected/failed and the ASIN. Runs before the message is stored, so follow-ups do not resolve again."""
+    deadline = time.monotonic() + AMAZON_BUDGET_S
+    done = 0
+
+    def replace(text: str) -> str:
+        nonlocal done
+        for url in amazon.find_product_urls(text):
+            if done >= MAX_AMAZON_LINKS or time.monotonic() >= deadline:
+                term, status, asin = None, "skipped", None
+            else:
+                done += 1
+                term, status, asin = amazon.resolve_product(url, max(0.5, min(5.0, deadline - time.monotonic())))
+            entry = {"type": "amazon_link", "status": status, "asin": asin, "search_term": term}
+            if status != "rejected":
+                entry["url"] = url.split("?")[0]
+            trace["sources"].append(entry)
+            text = text.replace(url, f"Amazon-Produkt (aus Link): {term}" if term else "")
+        return text.strip()
+
+    update = {}
+    if req.input_text and amazon.find_product_urls(req.input_text):
+        update["input_text"] = replace(req.input_text)
+    if any(amazon.find_product_urls(w) for w in req.wishes):
+        update["wishes"] = [w for w in (replace(w) for w in req.wishes) if w]
+    return req.model_copy(update=update) if update else req
+
+
+def enforce_budget(decision: Decision, req: RecommendRequest) -> Decision:
+    """Never trust the model on the budget: a top pick over budget is replaced by the first alternative that fits,
+    else the answer becomes a clarification. Unknown shipping is always named."""
+    de = req.language != "en"
+    if decision.status != "recommendation" or decision.top is None:
+        return decision
+
+    def total(rec: Recommendation) -> float | None:
+        return None if rec.price_eur is None else rec.price_eur + (rec.shipping_eur or 0)
+
+    def fits(rec: Recommendation) -> bool:
+        t = total(rec)
+        return t is None or req.budget_eur is None or t <= req.budget_eur
+
+    def name_shipping(rec: Recommendation) -> None:
+        text = (rec.reason + " " + " ".join(f"{s.label} {s.value}" for s in rec.signals)).lower()
+        if rec.shipping_eur is None and not re.search(r"versand[^.]*(unbekannt|nicht bekannt)|shipping[^.]*(unknown|not known)", text):
+            rec.signals.append(Signal(type="budget", label="Versand" if de else "Shipping", value="Versand unbekannt" if de else "Shipping unknown"))
+
+    if not fits(decision.top):
+        ok = next((a for a in decision.alternatives if fits(a)), None)
+        if ok is None:
+            reason = (f"Kein Treffer passt ins Budget von {req.budget_eur:g} €." if de else f"No match fits the budget of {req.budget_eur:g} EUR.")
+            question = ("Darf das Budget etwas höher sein oder soll ich etwas anderes suchen?" if de else "Can the budget be a bit higher, or should I look for something else?")
+            return Decision(status="needs_clarification", reply=f"{reason} {question}",
+                            uncertainty=Uncertainty(reasons=[reason], question=question))
+        rest = [a for a in [decision.top, *decision.alternatives] if a is not ok][:3]
+        note = ("Der erste Vorschlag lag über dem Budget, deshalb dieser: " if de else "The first pick was over budget, so this one instead: ")
+        decision = decision.model_copy(update={"top": ok, "alternatives": rest, "reply": note + ok.product_name})
+    for rec in [decision.top, *decision.alternatives]:
+        name_shipping(rec)
+    return decision
 
 
 # --- endpoints -------------------------------------------------------------
@@ -523,15 +803,20 @@ def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict
     update = dict(basics)
     if len(messages) > 1:
         update["input_text"] = "\n".join([messages[0]] + [f"Nachtrag: {m}" for m in messages[1:]])
-    return req.model_copy(update=update), {"messages": messages, **basics}, previous_pick
+    return req.model_copy(update=update), {"messages": messages, **basics, "clarify_streak": earlier.get("clarify_streak", 0)}, previous_pick
 
 
 
 @app.post("/recommend")
-def recommend(req: RecommendRequest) -> RecommendResponse:
+def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_user)) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
     trace = {"id": result_id, "sources": [], "model_calls": [], "idealo_calls": []}
     req = with_photo(req, trace)  # before the conversation, so the named product is part of the stored message
+    req = with_amazon_link(req, trace)  # likewise: the stored message holds the resolved term, not the link
+    if not req.wishes and not (req.input_text or "").strip():
+        raise HTTPException(422, "I could not read that link. Describe what you are looking for in a few words."
+                            if req.language == "en" else
+                            "Den Link kann ich keinem Produkt zuordnen. Beschreib kurz, wonach du suchst.")
     req, conversation, previous_pick = continue_conversation(req)
     trace["conversation"] = conversation
     req = with_amazon_wishlist(req, trace)
@@ -552,7 +837,10 @@ def recommend(req: RecommendRequest) -> RecommendResponse:
         model = trace["model_calls"][-1]["model"]
     else:
         follow_up = conversation["messages"][-1] if req.previous_id else None
-        decision, model = decide(req, understood, idealo, trace, previous_pick, follow_up)
+        decision, model = decide(req, understood, idealo, trace, previous_pick, follow_up,
+                                 must_recommend=conversation["clarify_streak"] >= 2)
+        decision = enforce_budget(decision, req)
+        conversation["clarify_streak"] = conversation["clarify_streak"] + 1 if decision.status == "needs_clarification" else 0
     response = RecommendResponse(
         **decision.model_dump(),
         understood=understood,
@@ -561,7 +849,7 @@ def recommend(req: RecommendRequest) -> RecommendResponse:
         trace_url=f"/trace/{result_id}",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
-    storage.save(result_id, response.model_dump(), trace)
+    storage.save(result_id, response.model_dump(), trace, user["id"] if user else None)
     return response
 
 

@@ -2,6 +2,7 @@
 ponytail: plain httpx instead of the MCP SDK, one request per tool call, no session reuse."""
 import json
 import os
+import threading
 import time
 
 import httpx
@@ -47,8 +48,24 @@ def list_tools() -> list[dict]:
     return rpc("tools/list", session=sid)[0]["result"]["tools"]
 
 
-def call_tool(name: str, arguments: dict, session: str | None = None) -> dict:
-    res = rpc("tools/call", {"name": name, "arguments": arguments}, session=session or open_session(), timeout=45)[0]
+MAX_CALLS_PER_SECOND = 3  # trial tier; per instance, shared by every caller (/recommend, /wishes/price)
+_slot = {"next": 0.0}
+_slot_lock = threading.Lock()
+
+
+def throttle() -> None:
+    """Token bucket without burst: every call reserves the next free slot, 1/3 s apart, and waits for it."""
+    with _slot_lock:
+        now = time.monotonic()
+        at = max(now, _slot["next"])
+        _slot["next"] = at + 1 / MAX_CALLS_PER_SECOND
+    if at > now:
+        time.sleep(at - now)
+
+
+def call_tool(name: str, arguments: dict, session: str | None = None, timeout: float = 45) -> dict:
+    throttle()
+    res = rpc("tools/call", {"name": name, "arguments": arguments}, session=session or open_session(), timeout=timeout)[0]
     if "error" in res:
         raise RuntimeError(res["error"].get("message", "idealo MCP error"))
     result = res["result"]

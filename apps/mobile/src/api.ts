@@ -1,5 +1,5 @@
-import { File, Paths } from 'expo-file-system';
-
+import { getLanguage, isLang, t, type Lang } from './i18n';
+import { deleteSecret, readJson, readSecret, writeJson, writeSecret } from './storage';
 import { TAG_COLORS } from './theme';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
@@ -39,11 +39,18 @@ export type Person = {
   id: string;
   name: string;
   occasion: string;
+  // YYYY-MM-DD; a birthday repeats every year (the daily check reminds 7 days before)
+  occasionDate?: string;
   budget: number;
   color: string;
   messages: Msg[];
   lastResultId: string | null;
   pins: Pin[];
+  // a friend added from their profile link; wishes are the last copy of their shared list
+  friendSlug?: string;
+  wishes?: Wish[];
+  // ms of the last change, used to merge with the account
+  updatedAt?: number;
 };
 
 // A pinned product: a small snapshot of a recommendation, kept on the person
@@ -76,7 +83,7 @@ export const togglePin = (p: Person, item: Product, resultId: string): Person =>
 
 // What the agent says for a turn; older backends send no `reply`
 export const sayOf = (r: Result) =>
-  r.reply || (r.status === 'recommendation' ? r.top?.reason : r.uncertainty?.question) || r.top?.reason || 'I could not find anything yet. Tell me a bit more.';
+  r.reply || (r.status === 'recommendation' ? r.top?.reason : r.uncertainty?.question) || r.top?.reason || t('nothingFound');
 
 export const lastResult = (p: Person) => {
   for (let i = p.messages.length - 1; i >= 0; i--) {
@@ -89,7 +96,7 @@ export const lastResult = (p: Person) => {
 // wishloop://results/{id}
 export const idFromUrl = (url: string | null) => url?.match(/results\/([^/?#]+)/)?.[1] ?? null;
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
@@ -98,30 +105,73 @@ class ApiError extends Error {
   }
 }
 
-async function request(path: string, body?: unknown): Promise<Result> {
+// The signed-in session: token in the keychain (web: localStorage), e-mail beside it
+export type Session = { token: string; email: string };
+export const SESSION_KEY = 'session';
+// undefined = not read yet; the in-memory copy is authoritative, so a sign-out stops requests at once
+// and a keychain that refuses to write still keeps the session until the app restarts
+let memory: Session | null | undefined;
+export const getSession = (): Session | null => {
+  if (memory !== undefined) return memory;
+  try {
+    const s = JSON.parse(readSecret(SESSION_KEY) ?? 'null');
+    memory = s && typeof s.token === 'string' ? s : null;
+  } catch {
+    memory = null;
+  }
+  return memory!;
+};
+// Returns false when the session could not be stored for the next app start
+export const setSession = (s: Session): boolean => {
+  memory = s;
+  const raw = JSON.stringify(s);
+  writeSecret(SESSION_KEY, raw);
+  return readSecret(SESSION_KEY) === raw;
+};
+export const clearSession = () => {
+  memory = null;
+  deleteSecret(SESSION_KEY);
+};
+
+// Called when the server rejects the token (401): the account module signs out
+let onSessionLost: () => void = () => {};
+export const setSessionLostHandler = (fn: () => void) => {
+  onSessionLost = fn;
+};
+
+// JSON call to the backend; sends the Bearer token when signed in (auth: false for the public sign-in calls)
+export async function call<T = unknown>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
+  const token = auth ? getSession()?.token : undefined;
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
   let res: Response;
   try {
-    res = await fetch(API_URL + path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+    res = await fetch(API_URL + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
-    throw new ApiError(`I can't reach the server (${API_URL}).`, 0);
+    throw new ApiError(t('noServer', { url: API_URL }), 0);
   }
+  if (res.status === 401 && token) onSessionLost();
   if (!res.ok) {
-    const detail = await res
-      .json()
-      .then((b) => (typeof b?.detail === 'string' ? b.detail : null))
-      .catch(() => null);
-    throw new ApiError(detail ?? `The server answered with error ${res.status}.`, res.status);
+    const data = await res.json().catch(() => null);
+    const err = new ApiError(typeof data?.detail === 'string' ? data.detail : t('serverError', { status: res.status }), res.status);
+    (err as ApiError & { data?: unknown }).data = data;
+    throw err;
   }
-  return res.json();
+  return res.status === 204 ? (undefined as T) : res.json();
 }
+
+const request = (path: string, body?: unknown): Promise<Result> => call(body ? 'POST' : 'GET', path, body);
 
 export const loadResult = (id: string) => request(`/results/${encodeURIComponent(id)}`);
 
 // A follow-up sends only the new message plus previous_id; the server prepends the history
 // image: a photo of a product as base64; the server names the product and carries on with that as text
-export async function recommend(p: Person, text: string, image?: string): Promise<Result> {
-  const base = { language: 'en', recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
-  if (!p.lastResultId) return request('/recommend', { ...base, input_text: text });
+// context: data that goes with the first message only (a friend's shared wishes); the server keeps it in the history after that
+export async function recommend(p: Person, text: string, image?: string, context?: string | null): Promise<Result> {
+  const base = { language: getLanguage(), recipient_name: p.name, budget_eur: p.budget, occasion: p.occasion, image_base64: image };
+  const withContext = (msg: string) => (context ? `${msg}\n\n${context}` : msg);
+  if (!p.lastResultId) return request('/recommend', { ...base, input_text: withContext(text) });
   try {
     return await request('/recommend', { ...base, input_text: text, previous_id: p.lastResultId });
   } catch (e) {
@@ -129,12 +179,10 @@ export async function recommend(p: Person, text: string, image?: string): Promis
     // The server forgot the earlier result (restart): send the whole history from the device instead
     const history = p.messages.flatMap((m) => (m.role === 'user' ? [m.text] : []));
     // same shape as the server's own history: first message, then follow-ups marked as such
-    return request('/recommend', { ...base, input_text: [...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n') });
+    return request('/recommend', { ...base, input_text: withContext([...history, text].map((m, i) => (i ? `Nachtrag: ${m}` : m)).join('\n')) });
   }
 }
 
-// expo-file-system ships with the expo package, so this needs no extra native module
-const peopleFile = () => new File(Paths.document, 'people.json');
 // While unused colours remain, two people never share one: later duplicates move to a free colour
 export const uniqueColors = (people: Person[]): Person[] => {
   const used = new Set(people.map((p) => p.color));
@@ -147,10 +195,13 @@ export const uniqueColors = (people: Person[]): Person[] => {
     return free ? { ...p, color } : p;
   });
 };
+export const friendFields = (p: any): Pick<Person, 'friendSlug' | 'wishes'> =>
+  typeof p?.friendSlug === 'string' && p.friendSlug ? { friendSlug: p.friendSlug, wishes: toWishes(p.wishes) } : {};
+export const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+export const dateField = (p: any): Pick<Person, 'occasionDate'> => (isDate(p?.occasionDate) ? { occasionDate: p.occasionDate } : {});
 export const loadPeople = (): Person[] => {
   try {
-    const file = peopleFile();
-    const raw: any[] = file.exists ? JSON.parse(file.textSync()) : [];
+    const raw = (readJson('people') as any[] | null) ?? [];
     // Entries from before the gift-tags rebuild have no id, colour or messages
     const people: Person[] = raw.map((p, i) => ({
       id: p.id ?? `p_${i}_${p.name}`,
@@ -161,6 +212,9 @@ export const loadPeople = (): Person[] => {
       messages: p.messages ?? [],
       lastResultId: p.lastResultId ?? null,
       pins: Array.isArray(p.pins) ? p.pins : [],
+      ...friendFields(p),
+      ...dateField(p),
+      updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
     }));
     const fixed = uniqueColors(people);
     if (fixed.some((p, i) => p !== people[i])) savePeople(fixed);
@@ -170,35 +224,85 @@ export const loadPeople = (): Person[] => {
   }
 };
 export const savePeople = (people: Person[]) => {
-  try {
-    peopleFile().write(JSON.stringify(people));
-  } catch {
-    // the list still works for this session
-  }
+  writeJson('people', people);
 };
 
+// A wish on a profile, mirrors docs/api.md (profile-link-friends)
+export type WishSource = 'amazon' | 'snap' | 'typed' | 'link';
+export type Price = {
+  price_eur: number | null;
+  offer_count: number | null;
+  in_stock: boolean | null;
+  trend: 'down' | 'stable' | 'up' | null;
+  change_percent: number | null;
+  url: string | null;
+  image_url: string | null;
+  checked_at: string;
+};
+export type Wish = { title: string; price_eur?: number | null; url?: string | null; image_url?: string | null; source: WishSource | null; added_at: number | null; price?: Price | null };
+
+const SOURCES: WishSource[] = ['amazon', 'snap', 'typed', 'link'];
+const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const toPrice = (p: any): Price | null =>
+  p && typeof p === 'object' && typeof p.checked_at === 'string'
+    ? {
+        price_eur: num(p.price_eur),
+        offer_count: num(p.offer_count),
+        in_stock: typeof p.in_stock === 'boolean' ? p.in_stock : null,
+        trend: p.trend === 'down' || p.trend === 'stable' || p.trend === 'up' ? p.trend : null,
+        change_percent: num(p.change_percent),
+        url: str(p.url),
+        image_url: str(p.image_url),
+        checked_at: p.checked_at,
+      }
+    : null;
+// Wishes used to be plain strings: those become typed wishes
+export const toWish = (w: any): Wish | null => {
+  if (typeof w === 'string') return w.trim() ? { title: w, source: 'typed', added_at: null } : null;
+  if (!w || typeof w !== 'object' || typeof w.title !== 'string' || !w.title.trim()) return null;
+  return {
+    title: w.title,
+    price_eur: num(w.price_eur),
+    url: str(w.url),
+    image_url: str(w.image_url),
+    source: SOURCES.includes(w.source) ? w.source : null,
+    added_at: num(w.added_at),
+    price: toPrice(w.price),
+  };
+};
+export const toWishes = (raw: unknown): Wish[] => (Array.isArray(raw) ? raw.map(toWish).filter((w): w is Wish => !!w) : []);
+// Same wish: same link, or the same title
+const norm = (t: string) => t.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+export const sameWish = (a: Wish, b: Wish) => (!!a.url && a.url === b.url) || norm(a.title) === norm(b.title);
+// The list stays as in `wishes`; per wish the more recently checked price wins (prices do not stamp updatedAt)
+export const newerPrices = (wishes: Wish[], other: Wish[]): Wish[] =>
+  wishes.map((w) => {
+    const o = other.find((x) => sameWish(x, w));
+    return o?.price && (!w.price || o.price.checked_at > w.price.checked_at) ? { ...w, price: o.price } : w;
+  });
+
 // My own tag and wishlist. Local to this phone like the people, in a second file
-export type Me = { name: string; color: string; wishes: string[] };
-const meFile = () => new File(Paths.document, 'me.json');
+// share: my public profile link while it is shared; language: the one last picked under Me, synced with the profile
+export type Me = { name: string; color: string; wishes: Wish[]; share?: { slug: string; url: string } | null; language?: Lang; updatedAt?: number };
+export const toShare = (v: any) => (v && typeof v === 'object' && typeof v.slug === 'string' && typeof v.url === 'string' ? { slug: v.slug, url: v.url } : null);
 export const loadMe = (): Me => {
   const empty: Me = { name: '', color: TAG_COLORS[1], wishes: [] };
   try {
-    const file = meFile();
-    const raw = file.exists ? JSON.parse(file.textSync()) : null;
+    const raw = readJson('me') as any;
     if (!raw || typeof raw !== 'object') return empty;
     return {
       name: typeof raw.name === 'string' ? raw.name : '',
       color: typeof raw.color === 'string' ? raw.color : empty.color,
-      wishes: Array.isArray(raw.wishes) ? raw.wishes.filter((w: unknown) => typeof w === 'string') : [],
+      wishes: toWishes(raw.wishes),
+      share: toShare(raw.share),
+      ...(isLang(raw.language) ? { language: raw.language } : {}),
+      updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : undefined,
     };
   } catch {
     return empty;
   }
 };
 export const saveMe = (me: Me) => {
-  try {
-    meFile().write(JSON.stringify(me));
-  } catch {
-    // still works for this session
-  }
+  writeJson('me', me);
 };
