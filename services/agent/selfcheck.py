@@ -443,6 +443,28 @@ tc = api.get(c.json()["trace_url"]).json()
 assert '"must_recommend": true' in tc["model_calls"][1]["input"][1]["content"] and len(tc["model_calls"]) == 3
 assert tc["conversation"]["clarify_streak"] == 0
 print("streak  ok: recommendation forced after two clarifications")
+_real_fetch_idealo = main.fetch_idealo
+# vague first message: one question with quick replies, no price data; any answer then leads to a recommendation
+vague = {"summary": "", "interests": [], "candidates": [], "needs_more_info": True,
+         "question": "Was mag sie gern?", "quick_replies": ["Mag Outdoor", "Eher Technik", "Etwas Persönliches"]}
+stub(json.dumps(vague))
+main.fetch_idealo = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no price data for a vague message"))
+v = api.post("/recommend", json={"input_text": "Irgendwas Schönes", "budget_eur": 40, "occasion": "Geburtstag"})
+assert v.status_code == 200, v.text
+assert v.json()["status"] == "needs_clarification" and v.json()["quick_replies"] == vague["quick_replies"] and v.json()["top"] is None
+tv = api.get(v.json()["trace_url"]).json()
+assert [c["step"] for c in tv["model_calls"]] == ["understand"] and tv["idealo_calls"] == [] and tv["conversation"]["clarify_streak"] == 1
+main.fetch_idealo = _real_fetch_idealo
+stub(json.dumps(vague | {"candidates": [{"idea": "Wanderrucksack", "why": "Sie mag Outdoor"}]}), json.dumps(decision("sample.chat.response.json")))
+a2 = api.post("/recommend", json={"previous_id": v.json()["id"], "input_text": "Sie mag Outdoor", "demo_case": "chaotic"})  # model wrongly asks again
+assert a2.json()["status"] == "recommendation" and a2.json()["quick_replies"] == [], a2.text
+stub(json.dumps(vague | {"candidates": [{"idea": "Tee", "why": "x"}]}), json.dumps(decision("sample.chat.response.json")))
+k = api.post("/recommend", json={"input_text": "Sie wandert gern", "preferences": "Tee", "budget_eur": 40, "occasion": "Geburtstag", "demo_case": "chaotic"})
+assert k.json()["status"] == "recommendation"  # hints in the first message: the flag is ignored
+stub(json.dumps(chat["understood"]), json.dumps(decision("sample.chat.response.json")))
+k = api.post("/recommend", json={"input_text": "Lea wandert gern und trinkt viel Tee", "budget_eur": 40, "occasion": "Geburtstag", "demo_case": "chaotic"})
+assert k.json()["status"] == "recommendation"
+print("vague   ok: one question with quick replies, no idealo call; answer and concrete input recommend")
 # profile link: share / unshare, whitelist filtering, import
 import profiles
 

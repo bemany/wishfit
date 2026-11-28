@@ -32,6 +32,7 @@ Response (`sample.response.json`, `sample.clarification.response.json`, `sample.
 | `top` | Recommendation \| null | null when `needs_clarification` |
 | `alternatives` | Recommendation[] | 2-3 entries, may be empty when `needs_clarification` |
 | `uncertainty` | `{reasons: string[], question: string}` \| null | set when data is missing or contradictory |
+| `quick_replies` | string[] | up to 3 short tappable answers to `uncertainty.question`; set only when the first message said too little about the person (then `needs_clarification`, no price data fetched, asked once). Empty otherwise. |
 | `model` | string | model that made the decision, e.g. `anthropic/claude-sonnet-5.5` |
 | `trace_url` | string | relative path |
 | `created_at` | ISO 8601 string | |

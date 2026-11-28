@@ -581,6 +581,8 @@ export function Thread({
   }, [text]);
   const empty = person.messages.length === 0;
   const answered = !busy && !error && person.messages.at(-1)?.role === 'agent';
+  const last = person.messages.at(-1);
+  const replies = (last?.role === 'agent' && last.result.quick_replies) || [];
 
   // Dictation: the recognised text streams into the field behind whatever was typed before
   const [session, setSession] = useState<{ stop: () => Promise<string> } | null>(null);
@@ -667,7 +669,9 @@ export function Thread({
           <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, alignItems: 'center' }}>
             {empty
               ? EXAMPLES.map((e) => <Pill key={e.label} large label={t(e.label)} onPress={() => setText(e.text)} />)
-              : QUICK.map((q) => <Pill key={q} large label={t(q)} onPress={() => send(t(q))} />)}
+              : replies.length
+                ? replies.map((q) => <Pill key={q} large label={q} onPress={() => send(q)} />)
+                : QUICK.map((q) => <Pill key={q} large label={t(q)} onPress={() => send(t(q))} />)}
           </ScrollView>
         )}
         {micNote === 'denied' && canOpenSettings ? (

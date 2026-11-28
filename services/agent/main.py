@@ -142,7 +142,17 @@ class Understood(BaseModel):
 
     summary: str
     interests: list[str] = Field(default_factory=list)
-    candidates: list[Candidate] = Field(min_length=1, max_length=5)
+    candidates: list[Candidate] = Field(default_factory=list, max_length=5)
+    # step 1 judges whether the input says anything usable about the person; if not, the agent asks once
+    needs_more_info: bool = False
+    question: str = ""
+    quick_replies: list[str] = Field(default_factory=list, max_length=3)
+
+    @model_validator(mode="after")
+    def has_candidates(self):
+        if not self.candidates and not (self.needs_more_info and self.question.strip()):
+            raise ValueError("candidates must have at least 1 entry unless needs_more_info comes with a question")
+        return self
 
 
 class Decision(BaseModel):
@@ -153,6 +163,7 @@ class Decision(BaseModel):
     top: Recommendation | None = None
     alternatives: list[Recommendation] = Field(default_factory=list, max_length=3)
     uncertainty: Uncertainty | None = None
+    quick_replies: list[str] = Field(default_factory=list, max_length=3)  # tappable answers to uncertainty.question
 
     @model_validator(mode="after")
     def consistent(self):
@@ -606,7 +617,14 @@ def llm_client() -> OpenAI:
 UNDERSTAND_PROMPT = """You are Wishloop, a gift-buying agent. Step 1: understand the input. You get whatever \
 the giver knows about a person: a pasted wishlist, a chat export, notes, interests, a dictated description, \
 plus occasion, budget and optional preferences. Return ONE JSON object and nothing else:
-{"summary": string, "interests": [string], "candidates": [{"idea": string, "why": string}]}
+{"summary": string, "interests": [string], "candidates": [{"idea": string, "why": string}], \
+"needs_more_info": boolean, "question": string, "quick_replies": [string]}
+- needs_more_info: true only if the input says NOTHING usable about the person (no interest, hobby, style, \
+product, wish, trait or context), for example "something nice" or "a gift". Then give candidates [] , ONE short \
+concrete question in "question" and exactly 3 short quick_replies (2-4 words each) that answer it, for example \
+"Likes the outdoors", "More into tech", "Something personal". Any concrete hint, however small ("likes hiking and \
+tea"), means false: then candidates are required and question/quick_replies stay empty/[]. A message that follows \
+an earlier turn is never vague: always false.
 - summary: one sentence about the person as far as the input supports it.
 - interests: up to 6 short keywords found in the input.
 - candidates: 1-5 concrete gift ideas, each phrased as a product search term a price-comparison site would \
@@ -863,6 +881,15 @@ def continue_conversation(req: RecommendRequest) -> tuple[RecommendRequest, dict
 
 
 
+def is_blank_first_message(req: RecommendRequest, conversation: dict) -> bool:
+    """The model may only ask for more when the very first message carries no other hint: no earlier turn,
+    wishes, preferences, photo or wishlist. Never trust the flag alone."""
+    text = req.input_text or ""
+    return (len(conversation["messages"]) == 1 and not req.previous_id and not req.wishes
+            and not (req.preferences or "").strip() and "[Foto]" not in text
+            and "Amazon-Wunschliste" not in text and "Amazon-Produkt" not in text)
+
+
 @app.post("/recommend")
 def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_user)) -> RecommendResponse:
     result_id = "r_" + secrets.token_hex(6)
@@ -878,6 +905,23 @@ def recommend(req: RecommendRequest, user: dict | None = Depends(auth.optional_u
     trace["conversation"] = conversation
     req = with_amazon_wishlist(req, trace)
     understood = understand(req, trace, previous_pick) if (req.input_text or "").strip() else None
+    if understood and understood.needs_more_info and is_blank_first_message(req, conversation):
+        # one targeted question instead of a random pick: no price data is fetched (no idealo or Apify cost)
+        question = understood.question.strip()
+        replies = [q.strip() for q in understood.quick_replies if q.strip()][:3]
+        reason = ("Ich weiß noch zu wenig über die Person." if req.language != "en" else "I know too little about the person yet.")
+        decision = Decision(status="needs_clarification", reply=question, quick_replies=replies,
+                            uncertainty=Uncertainty(reasons=[reason], question=question))
+        conversation["clarify_streak"] += 1
+        response = RecommendResponse(
+            **decision.model_dump(), understood=understood, id=result_id, model=trace["model_calls"][-1]["model"],
+            trace_url=f"/trace/{result_id}", created_at=datetime.now(timezone.utc).isoformat())
+        storage.save(result_id, response.model_dump(), trace, user["id"] if user else None)
+        return response
+    if understood and not understood.candidates:
+        # the model asked for more although this is not a blank first message: the short answer is the wish
+        understood.candidates = [Candidate(idea=conversation["messages"][-1][:80], why=conversation["messages"][-1][:160])]
+        understood.needs_more_info = False
     if understood:
         # the extracted ideas are researched like explicit wishes
         req = req.model_copy(update={"wishes": (req.wishes + [c.idea for c in understood.candidates])[:10]})

@@ -30,6 +30,8 @@ export type Result = {
   top: Recommendation | null;
   alternatives: Recommendation[];
   uncertainty: { reasons: string[]; question: string } | null;
+  // tappable answers to the question (a vague first message)
+  quick_replies?: string[];
   model: string;
 };
 
