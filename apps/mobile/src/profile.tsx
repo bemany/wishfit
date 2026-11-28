@@ -212,7 +212,7 @@ export function ImportBox({ onImported }: { onImported: (wishes: Wish[]) => numb
           returnKeyType="go"
           placeholder={t('pastePlaceholder')}
           placeholderTextColor={C.mute}
-          style={[s.input, { paddingTop: 0, paddingBottom: 0 }]}
+          style={s.input}
         />
         <Pill large label={busy ? t('importing') : t('import')} onPress={busy ? undefined : run} />
       </View>

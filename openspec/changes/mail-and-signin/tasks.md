@@ -5,7 +5,7 @@
 ## 2. App
 - [x] 2.1 Push-Registrierung nur bei neuem Token oder neuer Session
 - [x] 2.2 Netzfehler bei verify: Meldung und „Neuen Code senden"
-- [ ] 2.3 Platzhalter ohne gequetschte Wortabstände (Ursache finden)
+- [x] 2.3 Platzhalter ohne gequetschte Wortabstände (Ursache finden)
 
 ## 3. Prüfung
 - [ ] 3.1 Backend deployt, eine echte Mail an Esref (esref@bemany.de) auf Deutsch

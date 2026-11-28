@@ -297,7 +297,7 @@ export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { 
         <View style={{ gap: 8 }}>
           <Mono mute>{t('addWish')}</Mono>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <TextInput accessibilityLabel={t('newWish')} value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder={t('addPlaceholder')} placeholderTextColor={C.mute} style={[s.input, { paddingTop: 0, paddingBottom: 0 }]} />
+            <TextInput accessibilityLabel={t('newWish')} value={wish} onChangeText={setWish} onSubmitEditing={addWish} blurOnSubmit={false} returnKeyType="done" placeholder={t('addPlaceholder')} placeholderTextColor={C.mute} style={s.input} />
             <Round icon="plus" label={t('addWishButton')} ink size={52} onPress={addWish} />
           </View>
         </View>
@@ -687,7 +687,7 @@ export function Thread({
             onChangeText={setText}
             placeholder={empty ? t('placeholderFirst') : t('placeholderMore')}
             placeholderTextColor={C.mute}
-            style={s.input}
+            style={[s.input, s.inputMulti]}
           />
           {!busy && <Round icon="camera" label={t('snapProduct')} size={52} onPress={onSnap} />}
           {speechAvailable() && <Round icon="mic" label={session ? t('stopDictation') : t('dictate')} size={52} fill={session ? C.tomato : undefined} onPress={toggleMic} />}

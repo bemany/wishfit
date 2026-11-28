@@ -168,5 +168,7 @@ export const s = StyleSheet.create({
   lineTitle: { fontFamily: F.display, fontSize: 20, lineHeight: 23, letterSpacing: -0.6, color: C.ink },
   lineSub: { fontFamily: F.text, fontSize: 14, lineHeight: 20, color: C.mute },
   dot: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: C.ink },
-  input: { flex: 1, minHeight: 52, maxHeight: 120, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 14, borderRadius: 26, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper, fontFamily: F.text, fontSize: 16, lineHeight: 20, color: C.ink },
+  input: { flex: 1, minHeight: 52, maxHeight: 120, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 14, borderRadius: 26, borderWidth: 2, borderColor: C.ink, backgroundColor: C.paper, fontFamily: F.text, fontSize: 16, letterSpacing: 0, color: C.ink },
+  // multiline only: a fixed lineHeight on a single-line iOS field misplaces text and placeholder
+  inputMulti: { lineHeight: 20 },
 });
