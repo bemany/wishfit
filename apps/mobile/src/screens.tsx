@@ -246,7 +246,7 @@ export function AddPerson({ initial, usedColors, onBack, onDone, onDelete, onPin
   );
 }
 
-// Me: my own tag and wishlist. Stays on this phone unless signed in; shared as a profile link
+// Me: my own tag and wishlist, kept in the account; shared as a profile link
 export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { me: Me; account: Account; lang: Lang; onLanguage: (lang: Lang) => void; onChange: (me: Me) => void; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -282,7 +282,7 @@ export function MeScreen({ me, account, lang, onLanguage, onChange, onBack }: { 
             </Pressable>
           ))}
         </View>
-        <SharePanel me={me} account={account} onChange={onChange} onNeedSignIn={() => scroll.current?.scrollToEnd({ animated: true })} />
+        <SharePanel me={me} account={account} onChange={onChange} />
         <View style={{ gap: 10 }}>
           <Mono mute>{t('myWishlist')}</Mono>
           <WishList wishes={me.wishes} mine color={me.color} empty={t('noWishes')} onRemove={(i) => onChange({ ...me, wishes: me.wishes.filter((_w, j) => j !== i) })} />

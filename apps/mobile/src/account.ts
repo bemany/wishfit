@@ -109,7 +109,11 @@ export type Account = {
   saveLanguage: (lang: Lang) => void;
 };
 
+// a refusal with a readable reason, e.g. signing out before the last changes reached the account
+export class AccountError extends Error {}
+
 export function explain(e: unknown, fallback: string): string {
+  if (e instanceof AccountError) return e.message;
   if (!(e instanceof ApiError)) return fallback;
   if (e.status === 401) return t('codeWrong');
   if (e.status === 422) return t('badEmail');
@@ -232,10 +236,13 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     return queue.current;
   }, []);
 
-  const drop = useCallback(() => {
+  // clear: signing out or deleting also empties this device, the data belongs to the account and the next
+  // sign-in must not merge it into another account. A lost session (401) keeps it for the same account
+  const drop = useCallback((clear = false) => {
     clearSession();
+    if (clear) applyLocal({ people: [], me: { name: '', color: TAG_COLORS[1], wishes: [] }, tombs: [] });
     // the profile link belongs to the account
-    if (meRef.current.share) {
+    else if (meRef.current.share) {
       const next = { ...meRef.current, share: null };
       meRef.current = next;
       setMe(next);
@@ -250,7 +257,7 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
 
   // a 401 on any call means the token is gone
   useEffect(() => {
-    setSessionLostHandler(drop);
+    setSessionLostHandler(() => drop());
   }, [drop]);
 
   // app start: pull the account once and refresh the push token, which can change
@@ -311,6 +318,9 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
     if (getSession()) call('PUT', '/me/settings', { language: lang }).catch(() => {});
   };
   const signOut = async () => {
+    // the last changes go to the account first; without them signing out would lose them
+    if (sent.current !== keyOf(current())) await sync(!ready.current);
+    if (getSession() && sent.current !== keyOf(current())) throw new AccountError(t('unsynced'));
     const device_token = await pushTokenForSignOut();
     try {
       await call('POST', '/auth/logout', device_token ? { device_token } : undefined);
@@ -319,15 +329,14 @@ export function useAccount(people: Person[], me: Me, applyPeople: (f: (all: Pers
       if (!(e instanceof ApiError && e.status === 401)) throw e;
     }
     forgetPushToken();
-    drop();
+    drop(true);
   };
   const deleteAccount = async () => {
     await pushTokenForSignOut();
     // DELETE /me removes the account's devices on the server
     await call('DELETE', '/me');
     forgetPushToken();
-    // the data stays on this device
-    drop();
+    drop(true);
   };
 
   return { session, syncing, syncError, notStored, devCode, requestCode, verify, signOut, deleteAccount, removePerson, saveLanguage };

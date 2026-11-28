@@ -221,16 +221,12 @@ export function ImportBox({ onImported }: { onImported: (wishes: Wish[]) => numb
   );
 }
 
-// "Send my tag to friends": only with an account, the link comes from POST /me/share
-export function SharePanel({ me, account, onChange, onNeedSignIn }: { me: Me; account: Account; onChange: (me: Me) => void; onNeedSignIn: () => void }) {
+// "Send my tag to friends": the link comes from POST /me/share
+export function SharePanel({ me, account, onChange }: { me: Me; account: Account; onChange: (me: Me) => void }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const signedIn = !!account.session;
   const share = async () => {
-    if (!signedIn) {
-      setNote(t('signInFirst'));
-      return onNeedSignIn();
-    }
     setBusy(true);
     setNote(null);
     try {
