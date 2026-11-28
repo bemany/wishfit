@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 import { t, type Lang } from './i18n';
 import { C, F } from './theme';
@@ -76,15 +76,43 @@ export const Btn = ({ label, onPress, secondary, disabled }: { label: string; on
   </Pressable>
 );
 
-const FLAG: Record<Lang, string> = { de: '🇩🇪', en: '🇬🇧' };
+// Flags as drawings, not emoji: emoji flags are missing on Windows and many Linux browsers
+export const Flag = ({ lang, size = 18 }: { lang: Lang; size?: number }) =>
+  lang === 'de' ? (
+    <Svg width={size} height={(size * 3) / 5} viewBox="0 0 5 3">
+      <Rect width={5} height={1} y={0} fill="#000" />
+      <Rect width={5} height={1} y={1} fill="#DD0000" />
+      <Rect width={5} height={1} y={2} fill="#FFCE00" />
+    </Svg>
+  ) : (
+    <Svg width={size} height={size / 2} viewBox="0 0 60 30">
+      <Defs>
+        <ClipPath id="uk">
+          <Rect width={60} height={30} />
+        </ClipPath>
+      </Defs>
+      <Rect width={60} height={30} fill="#012169" />
+      <Path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth={6} clipPath="url(#uk)" />
+      <Path d="M0,0 L60,30 M60,0 L0,30" stroke="#C8102E" strokeWidth={2} clipPath="url(#uk)" />
+      <Path d="M30,0 V30 M0,15 H60" stroke="#fff" strokeWidth={10} />
+      <Path d="M30,0 V30 M0,15 H60" stroke="#C8102E" strokeWidth={6} />
+    </Svg>
+  );
 
 // Deutsch / English, the chosen one filled
 export const LanguagePicker = ({ value, onChange }: { value: Lang; onChange: (lang: Lang) => void }) => (
   <View style={{ flexDirection: 'row', gap: 8 }}>
     {(['de', 'en'] as const).map((l) => (
-      <View key={l} style={{ flex: 1 }}>
-        <Btn label={`${FLAG[l]}  ${l === 'de' ? 'Deutsch' : 'English'}`} secondary={l !== value} onPress={() => onChange(l)} />
-      </View>
+      <Pressable
+        key={l}
+        accessibilityRole="button"
+        accessibilityState={{ selected: l === value }}
+        onPress={() => onChange(l)}
+        style={[s.btn, { flex: 1, flexDirection: 'row', gap: 10 }, l !== value && { backgroundColor: C.paper }]}
+      >
+        <Flag lang={l} size={22} />
+        <Text style={[s.btnText, l !== value && { color: C.ink }]}>{l === 'de' ? 'Deutsch' : 'English'}</Text>
+      </Pressable>
     ))}
   </View>
 );
@@ -102,7 +130,7 @@ export const LanguageFlags = ({ value, onChange }: { value: Lang; onChange: (lan
         onPress={() => onChange(l)}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 36, borderRadius: 18, borderWidth: 2, borderColor: C.ink, backgroundColor: l === value ? C.ink : C.paper }}
       >
-        <Text style={{ fontSize: 16 }}>{FLAG[l]}</Text>
+        <Flag lang={l} />
         <Text style={[s.mono, { color: l === value ? '#fff' : C.ink }]}>{l.toUpperCase()}</Text>
       </Pressable>
     ))}
