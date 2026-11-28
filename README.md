@@ -1,6 +1,6 @@
 # Wishfit
 
-**Drop anything in. Get the one gift that fits.**
+<p align="center"><img src="docs/readme/hero.webp" alt="Wishfit: drop anything in, get the one gift that fits. Three gift tags, the front one shows a pick for Mara at €48.89 with idealo data stamps." width="100%"></p>
 
 Wishfit is a gift agent. You add a person (name, budget, occasion) and give the agent whatever you know about
 them: a WhatsApp chat export, an Amazon wishlist link, notes, or a dictated description. The agent reads the
@@ -10,7 +10,17 @@ your budget, with the data it is based on.
 Built in one day at the Agentic Hackathon Berlin ("From Research to Commerce", 27 November 2026) by team
 Unexpected. Landing page and films: https://wishfit.vercel.app
 
+## The app
+
+<p align="center"><img src="docs/readme/screens.webp" alt="Four iPhone screens in the gift-tags design: people as a stack of coloured tags, the chat with the agent's pick, the idealo data behind the pick, and your own tag with a wishlist." width="100%"></p>
+
+Every person you give gifts to is a **gift tag** in their own colour. You tell the agent what you know, it hangs its pick on
+that person's tag, and the idealo data behind the pick sits on it as stamps. The images above are from the design
+(`docs/design`); screenshots of the current builds, native iOS, web and PWA, are in [`docs/screens`](docs/screens).
+
 ## How it works
+
+<p align="center"><img src="docs/readme/flow.webp" alt="Four tags: 1 Understand, 2 Research, 3 Decide, 4 Keep chatting." width="100%"></p>
 
 1. **Understand.** A model on the Nebius Token Factory reads the free-form input and returns gift ideas, each
    tied to the part of the input it came from. A public Amazon wishlist link in the input is fetched and read.
@@ -25,6 +35,23 @@ Unexpected. Landing page and films: https://wishfit.vercel.app
 If the data is missing or contradictory, the agent says why it is unsure and asks instead of guessing. Without
 idealo data it returns ideas only and never invents prices. Every model call and every idealo call is stored in a
 trace per result.
+
+## Design
+
+The "gift tags" direction: white ground, black ink with 2px lines, and one strong colour per person. No grey cards, no
+shadows. Type is Bricolage Grotesque (names, prices, what the agent says), Instrument Sans (text) and DM Mono (small labels).
+
+| Token | Value | Used for |
+|---|---|---|
+| ink | `#0b0b0c` | text, every line, main button |
+| paper | `#ffffff` | background |
+| tomato | `#ff5a3c` | tag colour |
+| lemon | `#ffd23f` | tag colour, account, focus ring |
+| mint | `#7fd6a8` | tag colour |
+| lilac | `#c9a7ff` | tag colour, your own tag |
+| sky | `#8fd3ff` | tag colour |
+
+Details and the screen mockups: [`docs/design`](docs/design).
 
 ## What is in this repo
 
